@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>SHOWROOM The Twins — Punto de Venta & Monitoreo</title>
+  <title>SHOWROOM The Twins — Punto de Venta & Control Financiero</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
@@ -45,12 +45,18 @@
   <div id="thermal-receipt-58mm" class="hidden print:block"></div>
 
   <script>
-    const STORAGE_KEY = 'the_twins_showroom_pos_v1';
+    const STORAGE_KEY = 'the_twins_showroom_pos_v3';
 
     const DEFAULT_STATE = {
       businessName: 'SHOWROOM The Twins',
       subtitle: 'ESPACIO COLABORATIVO PARA EMPRENDEDORES',
       location: 'Showroom / Puesto de Comida',
+      role: 'seller', // 'seller' | 'admin'
+      adminPassword: 'twins2026',
+      showAuthModal: false,
+      authError: '',
+      pendingTabAfterAuth: null,
+      showChangePassModal: false,
       reinvestPercent: 50,
       cashOpen: true,
       openingFund: 500,
@@ -85,8 +91,19 @@
         { id: 'Para Llevar', zone: 'Express', status: 'Libre', total: 0 }
       ],
       orders: [],
+      inventoryLogs: [
+        {
+          id: 1,
+          date: new Date().toLocaleDateString('es-MX'),
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          action: 'Inicio',
+          product: 'Catálogo inicial cargado',
+          detail: '8 productos iniciales registrados en sistema',
+          user: 'Sistema'
+        }
+      ],
       liveLogs: [
-        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), msg: 'Sistema iniciado — SHOWROOM The Twins en línea', type: 'system' }
+        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), msg: 'Sistema iniciado — SHOWROOM The Twins (Modo Vendedor)', type: 'system' }
       ]
     };
 
@@ -98,7 +115,17 @@
         const saved = localStorage.getItem(STORAGE_KEY);
         if (saved) {
           const parsed = JSON.parse(saved);
-          return { ...DEFAULT_STATE, ...parsed, cart: parsed.cart || [] };
+          return {
+            ...DEFAULT_STATE,
+            ...parsed,
+            showAuthModal: false,
+            authError: '',
+            pendingTabAfterAuth: null,
+            showChangePassModal: false,
+            cart: parsed.cart || [],
+            inventoryLogs: parsed.inventoryLogs || DEFAULT_STATE.inventoryLogs,
+            cashMovements: parsed.cashMovements || []
+          };
         }
       } catch (e) {}
       return JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -106,14 +133,29 @@
 
     function saveState() {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+        const toSave = { ...state, showAuthModal: false, authError: '', pendingTabAfterAuth: null, showChangePassModal: false };
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
       } catch (e) {}
     }
 
     function addLog(msg, type = 'info') {
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
       state.liveLogs.unshift({ time, msg, type });
-      if (state.liveLogs.length > 40) state.liveLogs.pop();
+      if (state.liveLogs.length > 50) state.liveLogs.pop();
+    }
+
+    function addInventoryLog(action, product, detail, user = null) {
+      const now = new Date();
+      state.inventoryLogs.unshift({
+        id: Date.now() + Math.random(),
+        date: now.toLocaleDateString('es-MX'),
+        time: now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+        action,
+        product,
+        detail,
+        user: user || (state.role === 'admin' ? 'Administrador' : 'Vendedor')
+      });
+      if (state.inventoryLogs.length > 120) state.inventoryLogs.pop();
     }
 
     function fmt(num) {
@@ -125,6 +167,164 @@
       const reinvest = profit > 0 ? (profit * (state.reinvestPercent / 100)) : 0;
       const freeProfit = profit - reinvest;
       return { profit, reinvest, freeProfit };
+    }
+
+    // --- CÁLCULO INTEGRAL DE UTILIDAD DESPUÉS DE REINVERSIÓN, SUELDOS Y GASTOS ---
+    function getFullFinancialSummary() {
+      const validOrders = state.orders.filter(o => o.status !== 'Cancelado');
+      const totalSalesDay = validOrders.reduce((s, o) => s + o.totalSale, 0);
+      const totalCostDay = validOrders.reduce((s, o) => s + o.totalCost, 0);
+      const grossProfitDay = totalSalesDay - totalCostDay;
+
+      // Reinversión calculada sobre la ganancia bruta de ventas
+      const totalReinvestDay = grossProfitDay > 0 ? (grossProfitDay * (state.reinvestPercent / 100)) : 0;
+
+      // Desglose de movimientos de gastos y sueldos
+      const payrollTotal = state.cashMovements
+        .filter(m => m.category === 'Sueldos / Nómina')
+        .reduce((s, m) => s + m.amount, 0);
+
+      const operationalExpensesTotal = state.cashMovements
+        .filter(m => m.category === 'Gasto Operativo / Insumos' || m.category === 'Servicios / Renta')
+        .reduce((s, m) => s + m.amount, 0);
+
+      const ownerWithdrawalsTotal = state.cashMovements
+        .filter(m => m.category === 'Retiro Dueño')
+        .reduce((s, m) => s + m.amount, 0);
+
+      const extraIncomeTotal = state.cashMovements
+        .filter(m => m.category === 'Ingreso Adicional')
+        .reduce((s, m) => s + m.amount, 0);
+
+      // Ganancia neta final después de reinvertir, pagar sueldos y cubrir gastos operativos
+      const netProfitAfterAll = grossProfitDay + extraIncomeTotal - totalReinvestDay - payrollTotal - operationalExpensesTotal;
+
+      return {
+        validOrdersCount: validOrders.length,
+        totalSalesDay,
+        totalCostDay,
+        grossProfitDay,
+        totalReinvestDay,
+        payrollTotal,
+        operationalExpensesTotal,
+        ownerWithdrawalsTotal,
+        extraIncomeTotal,
+        netProfitAfterAll
+      };
+    }
+
+    // --- AUTENTICACIÓN DE ADMINISTRADOR CON CONTRASEÑA ---
+    function openAdminAuthModal(targetTab = null) {
+      state.showAuthModal = true;
+      state.authError = '';
+      state.pendingTabAfterAuth = targetTab;
+      render();
+      setTimeout(() => {
+        const inp = document.getElementById('admin-pass-input');
+        if (inp) inp.focus();
+      }, 50);
+    }
+
+    function closeAdminAuthModal() {
+      state.showAuthModal = false;
+      state.authError = '';
+      state.pendingTabAfterAuth = null;
+      render();
+    }
+
+    function submitAdminPassword(e) {
+      e.preventDefault();
+      const input = document.getElementById('admin-pass-input');
+      const val = input ? input.value : '';
+      if (val === state.adminPassword) {
+        state.role = 'admin';
+        state.showAuthModal = false;
+        state.authError = '';
+        if (state.pendingTabAfterAuth) {
+          state.activeTab = state.pendingTabAfterAuth;
+          state.pendingTabAfterAuth = null;
+        }
+        addLog('Inicio de sesión en Modo Administrador', 'system');
+        saveState();
+        render();
+      } else {
+        state.authError = 'Contraseña incorrecta. Intenta de nuevo.';
+        render();
+        setTimeout(() => {
+          const inp = document.getElementById('admin-pass-input');
+          if (inp) inp.focus();
+        }, 50);
+      }
+    }
+
+    function switchRole(targetRole) {
+      if (targetRole === 'seller') {
+        state.role = 'seller';
+        if (state.activeTab === 'inventory' || state.activeTab === 'cash') {
+          state.activeTab = 'pos';
+        }
+        addLog('Cambio a Modo Vendedor (acceso restringido activo)', 'system');
+        saveState();
+        render();
+        return;
+      }
+      openAdminAuthModal(null);
+    }
+
+    function openChangePassModal() {
+      if (state.role !== 'admin') return;
+      state.showChangePassModal = true;
+      state.authError = '';
+      render();
+    }
+
+    function closeChangePassModal() {
+      state.showChangePassModal = false;
+      state.authError = '';
+      render();
+    }
+
+    function submitChangePassword(e) {
+      e.preventDefault();
+      const form = e.target;
+      const currentPass = form.currentPass.value;
+      const newPass = form.newPass.value.trim();
+      const confirmPass = form.confirmPass.value.trim();
+
+      if (currentPass !== state.adminPassword) {
+        state.authError = 'La contraseña actual no coincide.';
+        render();
+        return;
+      }
+      if (newPass.length < 4) {
+        state.authError = 'La nueva contraseña debe tener al menos 4 caracteres.';
+        render();
+        return;
+      }
+      if (newPass !== confirmPass) {
+        state.authError = 'La confirmación de contraseña no coincide.';
+        render();
+        return;
+      }
+
+      state.adminPassword = newPass;
+      state.showChangePassModal = false;
+      state.authError = '';
+      addLog('Contraseña de Administrador actualizada correctamente', 'system');
+      saveState();
+      render();
+      alert('Contraseña de Administrador actualizada con éxito.');
+    }
+
+    function selectTab(tabKey) {
+      const adminOnlyTabs = ['inventory', 'cash'];
+      if (adminOnlyTabs.includes(tabKey) && state.role !== 'admin') {
+        openAdminAuthModal(tabKey);
+        return;
+      }
+      state.activeTab = tabKey;
+      saveState();
+      render();
     }
 
     // --- ACCIONES DEL CARRITO ---
@@ -183,7 +383,7 @@
 
     function confirmOrder() {
       if (!state.cashOpen) {
-        alert('La caja está cerrada. Ábrela en la pestaña "Caja" antes de registrar ventas.');
+        alert('La caja está cerrada. Solicita al Administrador abrir caja.');
         return;
       }
       if (state.cart.length === 0) return;
@@ -201,11 +401,17 @@
       const fin = calcFinancials(totalSale, totalCost);
       const folio = 1000 + state.orders.length + 1;
 
-      // Descontar inventario
       state.cart.forEach(item => {
         const prod = state.products.find(p => p.id === item.id);
         if (prod && !prod.infinite) {
+          const prevStock = prod.stock;
           prod.stock = Math.max(0, prod.stock - item.qty);
+          addInventoryLog(
+            'Salida por Venta',
+            prod.name,
+            `Venta #${folio}: -${item.qty} uds (Stock: ${prevStock} → ${prod.stock})`,
+            state.role === 'admin' ? 'Administrador' : 'Vendedor'
+          );
           if (prod.stock <= 5) {
             addLog(`Stock bajo en ${prod.name}: quedan ${prod.stock} uds`, 'alert');
           }
@@ -235,7 +441,6 @@
       state.orders.unshift(order);
       state.lastTicket = order;
 
-      // Actualizar estado de mesa/barra si aplica
       if (state.serviceType === 'Comer aquí') {
         const tbl = state.tables.find(t => t.id === state.selectedTable);
         if (tbl) {
@@ -244,7 +449,7 @@
         }
       }
 
-      addLog(`Venta #${folio} (${fmt(totalSale)}) • Ganancia: ${fmt(fin.profit)} • Reinversión: ${fmt(fin.reinvest)}`, 'sale');
+      addLog(`Venta #${folio} registrada por ${fmt(totalSale)} (${state.paymentMethod})`, 'sale');
       state.cart = [];
       state.amountPaid = '';
       state.orderNote = '';
@@ -256,29 +461,47 @@
     function buildPlainReceiptText(order) {
       const line = '--------------------------------';
       let txt = '';
-      txt += '      SHOWROOM THE TWINS\n';
-      txt += '  ESPACIO COLABORATIVO EMPREND.\n';
-      txt += line + '\n';
-      txt += `Folio: #${order.id}  ${order.time}\n`;
-      txt += `Servicio: ${order.serviceType} (${order.table})\n`;
-      txt += `Pago: ${order.paymentMethod}\n`;
-      txt += line + '\n';
+      txt += '      SHOWROOM THE TWINS
+';
+      txt += '  ESPACIO COLABORATIVO EMPREND.
+';
+      txt += line + '
+';
+      txt += `Folio: #${order.id}  ${order.time}
+`;
+      txt += `Servicio: ${order.serviceType} (${order.table})
+`;
+      txt += `Pago: ${order.paymentMethod}
+`;
+      txt += line + '
+';
       order.items.forEach(it => {
         const sub = (it.price * it.qty).toFixed(2);
-        txt += `${it.qty}x ${it.name.substring(0, 18)}\n`;
-        txt += `   $${it.price.toFixed(2)} c/u      $${sub}\n`;
+        txt += `${it.qty}x ${it.name.substring(0, 18)}
+`;
+        txt += `   $${it.price.toFixed(2)} c/u      $${sub}
+`;
       });
       if (order.note) {
-        txt += `Nota: ${order.note}\n`;
+        txt += `Nota: ${order.note}
+`;
       }
-      txt += line + '\n';
-      txt += `TOTAL:              $${order.totalSale.toFixed(2)}\n`;
+      txt += line + '
+';
+      txt += `TOTAL:              $${order.totalSale.toFixed(2)}
+`;
       if (order.paymentMethod === 'Efectivo') {
-        txt += `RECIBIDO:           $${order.paid.toFixed(2)}\n`;
-        txt += `CAMBIO:             $${order.change.toFixed(2)}\n`;
+        txt += `RECIBIDO:           $${order.paid.toFixed(2)}
+`;
+        txt += `CAMBIO:             $${order.change.toFixed(2)}
+`;
       }
-      txt += line + '\n';
-      txt += '  ¡GRACIAS POR TU COMPRA!\n\n\n';
+      txt += line + '
+';
+      txt += '  ¡GRACIAS POR TU COMPRA!
+
+
+';
       return txt;
     }
 
@@ -393,43 +616,115 @@
       window.location.href = url;
     }
 
-    // --- GESTIÓN DE INVENTARIO Y PRODUCTOS ---
+    // --- GESTIÓN DE INVENTARIO CON BITÁCORA DETALLADA ---
     function updateProductField(id, field, value) {
+      if (state.role !== 'admin') return;
       const prod = state.products.find(p => p.id === id);
       if (!prod) return;
-      if (field === 'infinite') {
-        prod.infinite = Boolean(value);
-      } else if (field === 'name' || field === 'category') {
-        prod[field] = value;
-      } else {
-        prod[field] = Math.max(0, parseFloat(value) || 0);
+
+      if (field === 'name') {
+        const cleanName = String(value).trim();
+        if (!cleanName || cleanName === prod.name) return;
+        const oldName = prod.name;
+        prod.name = cleanName;
+        addInventoryLog('Cambio de Nombre', cleanName, `Renombrado: "${oldName}" → "${cleanName}"`);
+        addLog(`Producto renombrado: "${oldName}" → "${cleanName}"`, 'system');
+      } else if (field === 'category') {
+        const cleanCat = String(value).trim();
+        if (!cleanCat || cleanCat === prod.category) return;
+        const oldCat = prod.category;
+        prod.category = cleanCat;
+        addInventoryLog('Cambio de Categoría', prod.name, `Categoría: "${oldCat}" → "${cleanCat}"`);
+      } else if (field === 'infinite') {
+        const nextInf = Boolean(value);
+        if (nextInf === prod.infinite) return;
+        prod.infinite = nextInf;
+        addInventoryLog('Modo Stock', prod.name, nextInf ? 'Activado Stock Infinito (∞)' : `Desactivado Stock Infinito (Stock actual: ${prod.stock})`);
+      } else if (field === 'costPrice') {
+        const nextVal = Math.max(0, parseFloat(value) || 0);
+        if (nextVal === prod.costPrice) return;
+        const oldVal = prod.costPrice;
+        prod.costPrice = nextVal;
+        addInventoryLog('Cambio de Costo', prod.name, `Costo compra: ${fmt(oldVal)} → ${fmt(nextVal)}`);
+      } else if (field === 'price') {
+        const nextVal = Math.max(0, parseFloat(value) || 0);
+        if (nextVal === prod.price) return;
+        const oldVal = prod.price;
+        prod.price = nextVal;
+        addInventoryLog('Cambio de Precio', prod.name, `Precio venta: ${fmt(oldVal)} → ${fmt(nextVal)}`);
+      } else if (field === 'stock') {
+        const nextVal = Math.max(0, parseInt(value) || 0);
+        if (nextVal === prod.stock) return;
+        const oldVal = prod.stock;
+        const diff = nextVal - oldVal;
+        prod.stock = nextVal;
+        addInventoryLog(
+          diff > 0 ? 'Entrada de Stock' : 'Ajuste de Stock',
+          prod.name,
+          `Existencias: ${oldVal} → ${nextVal} (${diff > 0 ? '+' + diff : diff} uds)`
+        );
+        addLog(`Inventario ajustado en ${prod.name}: ${oldVal} → ${nextVal} uds`, 'info');
       }
+
+      saveState();
+      render();
+    }
+
+    function quickAddStock(id, amount) {
+      if (state.role !== 'admin') return;
+      const prod = state.products.find(p => p.id === id);
+      if (!prod || prod.infinite) return;
+      const oldStock = prod.stock;
+      prod.stock += amount;
+      addInventoryLog('Entrada Rápida', prod.name, `Se agregaron +${amount} uds (${oldStock} → ${prod.stock})`);
+      addLog(`+${amount} uds agregadas a ${prod.name} (Total: ${prod.stock})`, 'info');
+      saveState();
+      render();
+    }
+
+    function deleteProduct(id) {
+      if (state.role !== 'admin') return;
+      const idx = state.products.findIndex(p => p.id === id);
+      if (idx === -1) return;
+      const prod = state.products[idx];
+      if (!confirm(`¿Seguro que deseas eliminar "${prod.name}" del menú?`)) return;
+      state.products.splice(idx, 1);
+      addInventoryLog('Producto Eliminado', prod.name, `Eliminado del catálogo (tenía ${prod.infinite ? '∞' : prod.stock + ' uds'})`);
+      addLog(`Producto eliminado del menú: ${prod.name}`, 'alert');
       saveState();
       render();
     }
 
     function addNewProduct(e) {
       e.preventDefault();
+      if (state.role !== 'admin') return;
       const form = e.target;
       const name = form.prodName.value.trim();
       const category = form.prodCategory.value.trim() || 'Antojitos';
+      const desc = form.prodDesc.value.trim() || 'Platillo del menú';
       const costPrice = parseFloat(form.prodCost.value) || 0;
       const price = parseFloat(form.prodPrice.value) || 0;
       const stock = parseInt(form.prodStock.value) || 0;
       const infinite = form.prodInfinite.checked;
       if (!name) return;
 
+      const newId = 'TWR-' + String(Date.now()).slice(-4);
       state.products.push({
-        id: 'TWR-' + String(state.products.length + 1).padStart(2, '0'),
+        id: newId,
         name,
         category,
         costPrice,
         price,
         stock,
         infinite,
-        desc: 'Producto agregado al menú'
+        desc
       });
-      addLog(`Nuevo producto agregado: ${name} (Costo ${fmt(costPrice)} / Venta ${fmt(price)})`, 'system');
+      addInventoryLog(
+        'Nuevo Producto',
+        name,
+        `Agregado (${category}) • Costo: ${fmt(costPrice)} • Venta: ${fmt(price)} • Stock: ${infinite ? '∞' : stock + ' uds'}`
+      );
+      addLog(`Nuevo producto agregado: ${name} (${fmt(price)})`, 'system');
       form.reset();
       saveState();
       render();
@@ -460,47 +755,85 @@
     }
 
     function updateOrderStatus(orderId, status) {
+      if (status === 'Cancelado' && state.role !== 'admin') {
+        alert('Solo el Administrador puede cancelar un pedido registrado.');
+        return;
+      }
       const ord = state.orders.find(o => o.id === orderId);
       if (!ord) return;
+      const prevStatus = ord.status;
       ord.status = status;
+
+      if (status === 'Cancelado' && prevStatus !== 'Cancelado') {
+        ord.items.forEach(item => {
+          const prod = state.products.find(p => p.id === item.id);
+          if (prod && !prod.infinite) {
+            const oldStock = prod.stock;
+            prod.stock += item.qty;
+            addInventoryLog('Devolución por Cancelación', prod.name, `Pedido #${ord.id} cancelado: +${item.qty} uds (${oldStock} → ${prod.stock})`);
+          }
+        });
+      }
+
       addLog(`Pedido #${orderId} marcado como: ${status}`, 'info');
       saveState();
       render();
     }
 
+    // --- CONTROL DE GASTOS, SUELDOS Y MOVIMIENTOS DE CAJA ---
     function addCashMovement(e) {
       e.preventDefault();
+      if (state.role !== 'admin') return;
       const form = e.target;
-      const type = form.movType.value;
+      const category = form.movCategory.value;
       const concept = form.movConcept.value.trim();
       const amount = parseFloat(form.movAmount.value) || 0;
+      const paidFromDrawer = form.movFromDrawer.checked;
       if (!concept || amount <= 0) return;
+
       state.cashMovements.unshift({
+        id: Date.now() + Math.random(),
+        date: new Date().toLocaleDateString('es-MX'),
         time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        type,
+        category,
         concept,
-        amount
+        amount,
+        paidFromDrawer
       });
-      addLog(`Movimiento de caja (${type}): ${concept} por ${fmt(amount)}`, 'info');
+      addLog(`Registro financiero (${category}): ${concept} por ${fmt(amount)}`, 'info');
       form.reset();
+      form.movFromDrawer.checked = true;
+      saveState();
+      render();
+    }
+
+    function deleteCashMovement(id) {
+      if (state.role !== 'admin') return;
+      const idx = state.cashMovements.findIndex(m => m.id === id);
+      if (idx === -1) return;
+      const mov = state.cashMovements[idx];
+      if (!confirm(`¿Eliminar el registro "${mov.concept}" (${fmt(mov.amount)})?`)) return;
+      state.cashMovements.splice(idx, 1);
+      addLog(`Movimiento eliminado: ${mov.concept} (${fmt(mov.amount)})`, 'alert');
       saveState();
       render();
     }
 
     function toggleCashRegister() {
+      if (state.role !== 'admin') return;
       if (state.cashOpen) {
         const counted = prompt('Ingresa el efectivo físico contado en caja:');
         if (counted === null) return;
         const cashSales = state.orders
           .filter(o => o.status !== 'Cancelado' && o.paymentMethod === 'Efectivo')
           .reduce((s, o) => s + o.totalSale, 0);
-        const expenses = state.cashMovements
-          .filter(m => m.type === 'Gasto / Compra insumo' || m.type === 'Retiro')
+        const drawerOut = state.cashMovements
+          .filter(m => m.category !== 'Ingreso Adicional' && m.paidFromDrawer)
           .reduce((s, m) => s + m.amount, 0);
-        const extraIn = state.cashMovements
-          .filter(m => m.type === 'Ingreso adicional')
+        const drawerIn = state.cashMovements
+          .filter(m => m.category === 'Ingreso Adicional' && m.paidFromDrawer)
           .reduce((s, m) => s + m.amount, 0);
-        const expected = state.openingFund + cashSales + extraIn - expenses;
+        const expected = state.openingFund + cashSales + drawerIn - drawerOut;
         const diff = (parseFloat(counted) || 0) - expected;
         state.cashOpen = false;
         addLog(`Caja CERRADA. Esperado: ${fmt(expected)} | Contado: ${fmt(counted)} | Diferencia: ${fmt(diff)}`, 'alert');
@@ -517,12 +850,8 @@
 
     // --- RENDERIZADO DE INTERFAZ ---
     function render() {
-      const validOrders = state.orders.filter(o => o.status !== 'Cancelado');
-      const totalSalesDay = validOrders.reduce((s, o) => s + o.totalSale, 0);
-      const totalCostDay = validOrders.reduce((s, o) => s + o.totalCost, 0);
-      const totalProfitDay = validOrders.reduce((s, o) => s + o.profit, 0);
-      const totalReinvestDay = validOrders.reduce((s, o) => s + o.reinvest, 0);
-      const totalFreeProfitDay = validOrders.reduce((s, o) => s + o.freeProfit, 0);
+      const isAdmin = state.role === 'admin';
+      const finSummary = getFullFinancialSummary();
 
       const cartTotal = state.cart.reduce((s, i) => s + i.price * i.qty, 0);
       const cartCost = state.cart.reduce((s, i) => s + i.costPrice * i.qty, 0);
@@ -539,7 +868,72 @@
 
       const app = document.getElementById('app');
       app.innerHTML = `
-        <!-- BARRA SUPERIOR IDENTIDAD THE TWINS -->
+        <!-- MODAL CONTRASEÑA DE ADMINISTRADOR -->
+        ${state.showAuthModal ? `
+          <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <form onsubmit="submitAdminPassword(event)" class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border-2 border-amber-400 space-y-4">
+              <div class="flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-[#081736] text-amber-400 flex items-center justify-center text-lg font-black">🔐</div>
+                <div>
+                  <h3 class="font-black text-[#081736] text-base">Acceso de Administrador</h3>
+                  <p class="text-xs text-slate-500">Ingresa tu contraseña para gestionar inventario, gastos, sueldos y ganancias.</p>
+                </div>
+              </div>
+              <div>
+                <label class="block text-xs font-bold text-slate-700 mb-1">Contraseña</label>
+                <input id="admin-pass-input" type="password" required placeholder="••••••••"
+                  class="w-full border border-slate-300 focus:border-[#081736] rounded-xl px-3.5 py-2.5 text-sm font-bold outline-none" />
+                <p class="text-[11px] text-slate-400 mt-1">Contraseña inicial: <code class="bg-slate-100 px-1.5 py-0.5 rounded text-slate-700 font-bold">twins2026</code> (puedes cambiarla adentro)</p>
+              </div>
+              ${state.authError ? `<div class="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">${state.authError}</div>` : ''}
+              <div class="flex gap-2 pt-1">
+                <button type="button" onclick="closeAdminAuthModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs">
+                  Cancelar
+                </button>
+                <button type="submit" class="flex-1 bg-[#081736] hover:bg-[#10295c] text-amber-400 font-extrabold py-2.5 rounded-xl text-xs">
+                  Entrar como Admin
+                </button>
+              </div>
+            </form>
+          </div>
+        ` : ''}
+
+        <!-- MODAL CAMBIAR CONTRASEÑA DE ADMINISTRADOR -->
+        ${state.showChangePassModal && isAdmin ? `
+          <div class="fixed inset-0 bg-slate-950/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+            <form onsubmit="submitChangePassword(event)" class="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border-2 border-amber-400 space-y-4">
+              <div>
+                <h3 class="font-black text-[#081736] text-base">🔑 Cambiar Contraseña de Administrador</h3>
+                <p class="text-xs text-slate-500">Actualiza la clave de acceso para proteger tus finanzas e inventario.</p>
+              </div>
+              <div class="space-y-2.5 text-xs">
+                <div>
+                  <label class="font-bold text-slate-700 block mb-1">Contraseña actual</label>
+                  <input name="currentPass" type="password" required class="w-full border border-slate-300 rounded-xl px-3 py-2 font-bold" />
+                </div>
+                <div>
+                  <label class="font-bold text-slate-700 block mb-1">Nueva contraseña (mínimo 4 caracteres)</label>
+                  <input name="newPass" type="password" required minlength="4" class="w-full border border-slate-300 rounded-xl px-3 py-2 font-bold" />
+                </div>
+                <div>
+                  <label class="font-bold text-slate-700 block mb-1">Confirmar nueva contraseña</label>
+                  <input name="confirmPass" type="password" required minlength="4" class="w-full border border-slate-300 rounded-xl px-3 py-2 font-bold" />
+                </div>
+              </div>
+              ${state.authError ? `<div class="text-xs font-bold text-rose-600 bg-rose-50 border border-rose-200 px-3 py-2 rounded-lg">${state.authError}</div>` : ''}
+              <div class="flex gap-2 pt-1">
+                <button type="button" onclick="closeChangePassModal()" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs">
+                  Cancelar
+                </button>
+                <button type="submit" class="flex-1 bg-[#081736] hover:bg-[#10295c] text-amber-400 font-extrabold py-2.5 rounded-xl text-xs">
+                  Guardar Contraseña
+                </button>
+              </div>
+            </form>
+          </div>
+        ` : ''}
+
+        <!-- BARRA SUPERIOR IDENTIDAD THE TWINS + SELECTOR DE ROL -->
         <header class="bg-[#081736] text-white border-b-4 border-amber-400 sticky top-0 z-30 shadow-lg">
           <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
             <div class="flex items-center gap-3">
@@ -556,88 +950,135 @@
               <span class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-full font-semibold">
                 <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> EN VIVO
               </span>
-              <div class="bg-white/10 px-3 py-1.5 rounded-lg flex items-center gap-2">
-                <span class="text-slate-300">% Reinversión:</span>
-                <input type="number" min="0" max="100" value="${state.reinvestPercent}"
-                  onchange="state.reinvestPercent = Math.min(100, Math.max(0, Number(this.value)||0)); saveState(); render();"
-                  class="w-14 bg-[#0d2352] border border-amber-400/50 rounded px-1.5 py-0.5 text-amber-300 font-bold text-center" />
-                <span class="text-amber-300 font-bold">%</span>
+
+              <!-- SWITCH DE MODO VENDEDOR / ADMINISTRADOR -->
+              <div class="bg-[#0d2352] border border-white/15 p-1 rounded-xl flex items-center gap-1">
+                <button onclick="switchRole('seller')"
+                  class="px-2.5 py-1 rounded-lg font-bold transition ${
+                    !isAdmin ? 'bg-emerald-500 text-slate-950 shadow' : 'text-slate-300 hover:text-white'
+                  }">
+                  👤 Vendedor
+                </button>
+                <button onclick="switchRole('admin')"
+                  class="px-2.5 py-1 rounded-lg font-bold transition ${
+                    isAdmin ? 'bg-amber-400 text-[#081736] shadow' : 'text-slate-300 hover:text-white'
+                  }">
+                  🔐 Admin
+                </button>
               </div>
-              <button onclick="state.activeTab='printer'; render();"
+
+              ${isAdmin ? `
+                <div class="bg-white/10 px-2.5 py-1 rounded-lg flex items-center gap-1.5">
+                  <span class="text-slate-300">% Reinversión:</span>
+                  <input type="number" min="0" max="100" value="${state.reinvestPercent}"
+                    onchange="state.reinvestPercent = Math.min(100, Math.max(0, Number(this.value)||0)); saveState(); render();"
+                    class="w-12 bg-[#0d2352] border border-amber-400/50 rounded px-1 py-0.5 text-amber-300 font-bold text-center" />
+                  <span class="text-amber-300 font-bold">%</span>
+                </div>
+                <button onclick="openChangePassModal()" title="Cambiar Contraseña de Administrador"
+                  class="bg-white/10 hover:bg-white/20 text-amber-200 px-2.5 py-1.5 rounded-lg font-bold">
+                  🔑 Contraseña
+                </button>
+              ` : ''}
+
+              <button onclick="selectTab('printer')"
                 class="bg-amber-400 hover:bg-amber-300 text-[#081736] font-bold px-3 py-1.5 rounded-lg transition">
-                🖨️ MP58C6 (58mm)
+                🖨️ MP58C6
               </button>
             </div>
           </div>
 
-          <!-- MENÚ DE NAVEGACIÓN -->
+          <!-- MENÚ DE NAVEGACIÓN POR ROL -->
           <nav class="bg-[#0d2352] px-4 py-2 overflow-x-auto">
             <div class="max-w-7xl mx-auto flex gap-2 text-xs sm:text-sm font-semibold">
               ${[
-                ['pos', '🍔 Nuevo Pedido'],
-                ['live', '📡 Monitoreo Vivo'],
-                ['tables', '🪑 Mesas y Barra'],
-                ['inventory', '📦 Inventario y Costos'],
-                ['cash', '💰 Caja y Ganancias'],
-                ['printer', '🖨️ Impresora MP58C6']
-              ].map(([key, label]) => `
-                <button onclick="state.activeTab='${key}'; saveState(); render();"
-                  class="px-3.5 py-2 rounded-lg whitespace-nowrap transition ${
+                ['pos', '🍔 Nuevo Pedido', false],
+                ['live', '📡 Monitoreo Vivo', false],
+                ['tables', '🪑 Mesas y Barra', false],
+                ['inventory', '📦 Inventario y Cambios', true],
+                ['cash', '💰 Gastos, Sueldos y Ganancias', true],
+                ['printer', '🖨️ Impresora MP58C6', false]
+              ].map(([key, label, adminOnly]) => `
+                <button onclick="selectTab('${key}')"
+                  class="px-3.5 py-2 rounded-lg whitespace-nowrap transition flex items-center gap-1.5 ${
                     state.activeTab === key
                       ? 'bg-amber-400 text-[#081736] font-extrabold shadow'
-                      : 'text-slate-200 hover:bg-white/10'
+                      : adminOnly && !isAdmin
+                        ? 'text-slate-400 bg-white/5 hover:bg-white/10'
+                        : 'text-slate-200 hover:bg-white/10'
                   }">
-                  ${label}
+                  <span>${label}</span>
+                  ${adminOnly && !isAdmin ? '<span class="text-[11px]">🔒</span>' : ''}
                 </button>
               `).join('')}
             </div>
           </nav>
         </header>
 
-        <!-- MÉTRICAS RÁPIDAS DEL DÍA -->
-        <section class="max-w-7xl mx-auto px-4 pt-4">
-          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-              <div class="text-xs text-slate-500 font-medium">Ventas del Día</div>
-              <div class="text-xl font-black text-slate-900 mt-0.5">${fmt(totalSalesDay)}</div>
-              <div class="text-[11px] text-slate-400">${validOrders.length} pedidos válidos</div>
+        <!-- MÉTRICAS DEL DÍA (EXCLUSIVAS DE ADMINISTRADOR) -->
+        ${isAdmin ? `
+          <section class="max-w-7xl mx-auto px-4 pt-4">
+            <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+                <div class="text-[11px] text-slate-500 font-semibold">Ventas Brutas</div>
+                <div class="text-lg font-black text-slate-900 mt-0.5">${fmt(finSummary.totalSalesDay)}</div>
+                <div class="text-[10px] text-slate-400">${finSummary.validOrdersCount} pedidos • Costo: ${fmt(finSummary.totalCostDay)}</div>
+              </div>
+              <div class="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 shadow-sm">
+                <div class="text-[11px] text-emerald-800 font-semibold">Ganancia de Ventas</div>
+                <div class="text-lg font-black text-emerald-700 mt-0.5">${fmt(finSummary.grossProfitDay)}</div>
+                <div class="text-[10px] text-emerald-600">Antes de reinversión/gastos</div>
+              </div>
+              <div class="bg-amber-50 p-3.5 rounded-xl border border-amber-300 shadow-sm">
+                <div class="text-[11px] text-amber-800 font-semibold">- Reinversión (${state.reinvestPercent}%)</div>
+                <div class="text-lg font-black text-amber-700 mt-0.5">${fmt(finSummary.totalReinvestDay)}</div>
+                <div class="text-[10px] text-amber-700">Fondo para resurtir</div>
+              </div>
+              <div class="bg-purple-50 p-3.5 rounded-xl border border-purple-200 shadow-sm">
+                <div class="text-[11px] text-purple-800 font-semibold">- Pago de Sueldos</div>
+                <div class="text-lg font-black text-purple-800 mt-0.5">${fmt(finSummary.payrollTotal)}</div>
+                <div class="text-[10px] text-purple-600">Nómina / turnos pagados</div>
+              </div>
+              <div class="bg-rose-50 p-3.5 rounded-xl border border-rose-200 shadow-sm">
+                <div class="text-[11px] text-rose-800 font-semibold">- Otros Gastos</div>
+                <div class="text-lg font-black text-rose-700 mt-0.5">${fmt(finSummary.operationalExpensesTotal)}</div>
+                <div class="text-[10px] text-rose-600">Gas, renta, extras</div>
+              </div>
+              <div class="p-3.5 rounded-xl border-2 shadow-sm ${
+                finSummary.netProfitAfterAll >= 0
+                  ? 'bg-[#081736] border-amber-400 text-white'
+                  : 'bg-rose-950 border-rose-500 text-white'
+              }">
+                <div class="text-[11px] text-amber-300 font-bold uppercase">Ganancia Real Final</div>
+                <div class="text-lg font-black mt-0.5 ${finSummary.netProfitAfterAll >= 0 ? 'text-emerald-400' : 'text-rose-300'}">
+                  ${fmt(finSummary.netProfitAfterAll)}
+                </div>
+                <div class="text-[10px] text-slate-300">Libre tras reinvertir y sueldos</div>
+              </div>
             </div>
-            <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
-              <div class="text-xs text-slate-500 font-medium">Costo Insumos</div>
-              <div class="text-xl font-black text-slate-700 mt-0.5">${fmt(totalCostDay)}</div>
-              <div class="text-[11px] text-slate-400">Recuperación de inversión</div>
+          </section>
+        ` : `
+          <section class="max-w-7xl mx-auto px-4 pt-3">
+            <div class="bg-emerald-50 border border-emerald-200 text-emerald-900 px-4 py-2 rounded-xl flex flex-wrap justify-between items-center text-xs">
+              <span><b>Modo Vendedor activo:</b> Puedes tomar pedidos, gestionar mesas e imprimir tickets de 58 mm.</span>
+              <span class="text-emerald-700 font-semibold">Pedidos atendidos hoy: ${finSummary.validOrdersCount}</span>
             </div>
-            <div class="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 shadow-sm">
-              <div class="text-xs text-emerald-700 font-semibold">Ganancia Neta</div>
-              <div class="text-xl font-black text-emerald-700 mt-0.5">${fmt(totalProfitDay)}</div>
-              <div class="text-[11px] text-emerald-600">Venta menos costo</div>
-            </div>
-            <div class="bg-amber-50 p-3.5 rounded-xl border border-amber-300 shadow-sm">
-              <div class="text-xs text-amber-800 font-semibold">Para Reinvertir (${state.reinvestPercent}%)</div>
-              <div class="text-xl font-black text-amber-700 mt-0.5">${fmt(totalReinvestDay)}</div>
-              <div class="text-[11px] text-amber-700">Fondo crecimiento</div>
-            </div>
-            <div class="bg-blue-50 p-3.5 rounded-xl border border-blue-200 shadow-sm col-span-2 sm:col-span-1">
-              <div class="text-xs text-blue-800 font-semibold">Utilidad Libre</div>
-              <div class="text-xl font-black text-blue-900 mt-0.5">${fmt(totalFreeProfitDay)}</div>
-              <div class="text-[11px] text-blue-600">Ganancia disponible</div>
-            </div>
-          </div>
-        </section>
+          </section>
+        `}
 
         <!-- CONTENIDO PRINCIPAL POR PESTAÑA -->
         <main class="max-w-7xl mx-auto px-4 py-5">
-          ${state.activeTab === 'pos' ? renderPOS(categories, filteredProducts, cartTotal, cartCost, cartFin, changeVal) : ''}
-          ${state.activeTab === 'live' ? renderLiveMonitor() : ''}
+          ${state.activeTab === 'pos' ? renderPOS(isAdmin, categories, filteredProducts, cartTotal, cartCost, cartFin, changeVal) : ''}
+          ${state.activeTab === 'live' ? renderLiveMonitor(isAdmin) : ''}
           ${state.activeTab === 'tables' ? renderTables() : ''}
-          ${state.activeTab === 'inventory' ? renderInventory() : ''}
-          ${state.activeTab === 'cash' ? renderCash(totalSalesDay, totalCostDay, totalProfitDay, totalReinvestDay, totalFreeProfitDay) : ''}
+          ${state.activeTab === 'inventory' && isAdmin ? renderInventory() : ''}
+          ${state.activeTab === 'cash' && isAdmin ? renderCash(finSummary) : ''}
           ${state.activeTab === 'printer' ? renderPrinterTab() : ''}
         </main>
       `;
     }
 
-    function renderPOS(categories, filteredProducts, cartTotal, cartCost, cartFin, changeVal) {
+    function renderPOS(isAdmin, categories, filteredProducts, cartTotal, cartCost, cartFin, changeVal) {
       return `
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
           <!-- CATÁLOGO DE PRODUCTOS -->
@@ -684,9 +1125,13 @@
                         </div>
                       </div>
                       <div class="mt-3 pt-2 border-t border-slate-100 flex justify-between items-center text-[11px]">
-                        <span class="text-slate-500">Costo: <b>${fmt(prod.costPrice)}</b> | Ganancia: <b class="text-emerald-600">${fmt(unitProfit)}</b></span>
+                        ${isAdmin ? `
+                          <span class="text-slate-500">Costo: <b>${fmt(prod.costPrice)}</b> | Ganancia: <b class="text-emerald-600">${fmt(unitProfit)}</b></span>
+                        ` : `
+                          <span class="text-slate-400">Toca para agregar</span>
+                        `}
                         <span class="font-bold ${prod.infinite ? 'text-blue-600' : prod.stock <= 5 ? 'text-rose-600' : 'text-slate-600'}">
-                          ${prod.infinite ? 'Stock: ∞' : outOfStock ? 'AGOTADO' : `Stock: ${prod.stock}`}
+                          ${prod.infinite ? 'Disponible' : outOfStock ? 'AGOTADO' : `Disponibles: ${prod.stock}`}
                         </span>
                       </div>
                     </div>
@@ -696,7 +1141,7 @@
             </div>
           </div>
 
-          <!-- COMANDA ACTUAL + CÁLCULO DE GANANCIA Y TICKET -->
+          <!-- COMANDA ACTUAL -->
           <div class="lg:col-span-5 space-y-4">
             <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
               <div class="flex justify-between items-center border-b border-slate-100 pb-2.5">
@@ -704,7 +1149,6 @@
                 ${state.cart.length > 0 ? `<button onclick="clearCart()" class="text-xs text-rose-600 font-bold hover:underline">Vaciar</button>` : ''}
               </div>
 
-              <!-- TIPO DE SERVICIO Y MESA -->
               <div class="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <label class="font-bold text-slate-600 block mb-1">Servicio</label>
@@ -722,7 +1166,6 @@
                 </div>
               </div>
 
-              <!-- LISTA DE ITEMS EN CARRITO -->
               <div class="max-h-56 overflow-y-auto divide-y divide-slate-100">
                 ${state.cart.length === 0 ? `
                   <div class="py-8 text-center text-slate-400 text-sm">
@@ -733,7 +1176,8 @@
                     <div class="flex-1">
                       <div class="font-bold text-sm text-slate-900">${item.name}</div>
                       <div class="text-[11px] text-slate-500">
-                        Venta: ${fmt(item.price)} | Costo: ${fmt(item.costPrice)} | Ganancia: <span class="text-emerald-600 font-bold">${fmt((item.price - item.costPrice) * item.qty)}</span>
+                        Precio: ${fmt(item.price)} c/u
+                        ${isAdmin ? ` | Costo: ${fmt(item.costPrice)} | Ganancia: <span class="text-emerald-600 font-bold">${fmt((item.price - item.costPrice) * item.qty)}</span>` : ''}
                       </div>
                     </div>
                     <div class="flex items-center gap-1.5">
@@ -746,31 +1190,31 @@
                 `).join('')}
               </div>
 
-              <!-- DESGLOSE FINANCIERO DE ESTA VENTA -->
               <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5 text-xs">
-                <div class="flex justify-between text-slate-600">
-                  <span>Costo total insumos:</span>
-                  <span class="font-bold">${fmt(cartCost)}</span>
-                </div>
-                <div class="flex justify-between text-emerald-700 font-bold">
-                  <span>Ganancia neta de esta venta:</span>
-                  <span>${fmt(cartFin.profit)}</span>
-                </div>
-                <div class="flex justify-between text-amber-800 font-bold">
-                  <span>Separar para reinversión (${state.reinvestPercent}%):</span>
-                  <span>${fmt(cartFin.reinvest)}</span>
-                </div>
-                <div class="flex justify-between text-blue-800 font-bold">
-                  <span>Utilidad libre:</span>
-                  <span>${fmt(cartFin.freeProfit)}</span>
-                </div>
-                <div class="border-t border-slate-200 pt-2 flex justify-between items-center text-base font-black text-[#081736]">
+                ${isAdmin ? `
+                  <div class="flex justify-between text-slate-600">
+                    <span>Costo total insumos:</span>
+                    <span class="font-bold">${fmt(cartCost)}</span>
+                  </div>
+                  <div class="flex justify-between text-emerald-700 font-bold">
+                    <span>Ganancia de esta venta:</span>
+                    <span>${fmt(cartFin.profit)}</span>
+                  </div>
+                  <div class="flex justify-between text-amber-800 font-bold">
+                    <span>Separar para reinversión (${state.reinvestPercent}%):</span>
+                    <span>${fmt(cartFin.reinvest)}</span>
+                  </div>
+                  <div class="flex justify-between text-blue-800 font-bold">
+                    <span>Queda tras reinvertir (para sueldos/utilidad):</span>
+                    <span>${fmt(cartFin.freeProfit)}</span>
+                  </div>
+                ` : ''}
+                <div class="${isAdmin ? 'border-t border-slate-200 pt-2' : ''} flex justify-between items-center text-base font-black text-[#081736]">
                   <span>TOTAL A COBRAR:</span>
                   <span class="text-xl">${fmt(cartTotal)}</span>
                 </div>
               </div>
 
-              <!-- MÉTODO DE PAGO Y NOTAS -->
               <div class="grid grid-cols-2 gap-2 text-xs">
                 <div>
                   <label class="font-bold text-slate-600 block mb-1">Método de pago</label>
@@ -807,7 +1251,6 @@
               </button>
             </div>
 
-            <!-- ÚLTIMO TICKET GENERADO LISTO PARA MP58C6 -->
             ${state.lastTicket ? `
               <div class="bg-white p-4 rounded-2xl border-2 border-amber-400 shadow-sm space-y-3">
                 <div class="flex justify-between items-center">
@@ -855,10 +1298,9 @@
       `;
     }
 
-    function renderLiveMonitor() {
+    function renderLiveMonitor(isAdmin) {
       return `
         <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <!-- PEDIDOS EN TIEMPO REAL -->
           <div class="lg:col-span-7 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
             <div class="flex justify-between items-center">
               <h2 class="font-extrabold text-[#081736] text-base">Pedidos del Turno en Tiempo Real</h2>
@@ -886,12 +1328,13 @@
                     </div>
                     <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-200 text-xs">
                       <div>
-                        Venta: <b>${fmt(ord.totalSale)}</b> | Ganancia: <b class="text-emerald-700">${fmt(ord.profit)}</b> | Reinversión: <b class="text-amber-700">${fmt(ord.reinvest)}</b>
+                        Total: <b>${fmt(ord.totalSale)}</b> (${ord.paymentMethod})
+                        ${isAdmin ? ` | Ganancia: <b class="text-emerald-700">${fmt(ord.profit)}</b> | Reinversión: <b class="text-amber-700">${fmt(ord.reinvest)}</b>` : ''}
                       </div>
                       <div class="flex gap-1.5">
                         <button onclick="updateOrderStatus(${ord.id}, 'Entregado')" class="px-2.5 py-1 bg-emerald-600 text-white rounded font-bold">Entregar</button>
                         <button onclick="printSystem58mm(state.orders.find(o=>o.id===${ord.id}))" class="px-2.5 py-1 bg-[#081736] text-amber-400 rounded font-bold">Ticket</button>
-                        <button onclick="updateOrderStatus(${ord.id}, 'Cancelado')" class="px-2.5 py-1 bg-rose-100 text-rose-700 rounded font-bold">Cancelar</button>
+                        ${isAdmin ? `<button onclick="updateOrderStatus(${ord.id}, 'Cancelado')" class="px-2.5 py-1 bg-rose-100 text-rose-700 rounded font-bold">Cancelar</button>` : ''}
                       </div>
                     </div>
                   </div>
@@ -900,7 +1343,6 @@
             `}
           </div>
 
-          <!-- BITÁCORA EN VIVO -->
           <div class="lg:col-span-5 bg-[#081736] text-white p-4 rounded-2xl shadow-sm space-y-3">
             <div class="flex items-center justify-between">
               <h2 class="font-extrabold text-amber-400 text-base">Bitácora de Actividad en Vivo</h2>
@@ -924,7 +1366,7 @@
         <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
           <div class="flex justify-between items-center">
             <h2 class="font-extrabold text-[#081736] text-lg">Control de Mesas, Barra y Servicio Express</h2>
-            <span class="text-xs text-slate-500">Toca "Tomar pedido" para asignar la comanda</span>
+            <span class="text-xs text-slate-500">Toca "+ Pedido" para asignar la comanda</span>
           </div>
           <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
             ${state.tables.map(tbl => `
@@ -963,50 +1405,66 @@
     function renderInventory() {
       return `
         <div class="space-y-5">
-          <!-- AGREGAR NUEVO PLATILLO -->
           <form onsubmit="addNewProduct(event)" class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
-            <h2 class="font-extrabold text-[#081736] text-base">Agregar Nuevo Platillo o Bebida</h2>
+            <div class="flex justify-between items-center">
+              <h2 class="font-extrabold text-[#081736] text-base">Agregar Nuevo Platillo, Bebida o Extra</h2>
+              <span class="text-xs text-slate-500">Se registrará automáticamente en el historial</span>
+            </div>
             <div class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 text-xs">
-              <input name="prodName" required placeholder="Nombre del platillo" class="sm:col-span-2 border border-slate-300 rounded-lg px-3 py-2" />
+              <input name="prodName" required placeholder="Nombre del producto" class="sm:col-span-2 border border-slate-300 rounded-lg px-3 py-2 font-semibold" />
               <input name="prodCategory" placeholder="Categoría (ej. Platillos)" class="border border-slate-300 rounded-lg px-3 py-2" />
               <input name="prodCost" type="number" step="0.01" required placeholder="Costo compra ($)" class="border border-slate-300 rounded-lg px-3 py-2" />
               <input name="prodPrice" type="number" step="0.01" required placeholder="Precio venta ($)" class="border border-slate-300 rounded-lg px-3 py-2" />
               <div class="flex items-center gap-2">
                 <input name="prodStock" type="number" placeholder="Stock" class="w-20 border border-slate-300 rounded-lg px-2 py-2" />
-                <label class="flex items-center gap-1 font-bold text-slate-700">
+                <label class="flex items-center gap-1 font-bold text-slate-700" title="Stock infinito">
                   <input name="prodInfinite" type="checkbox" /> ∞
                 </label>
               </div>
             </div>
-            <button type="submit" class="bg-[#081736] text-amber-400 font-bold text-xs px-4 py-2 rounded-lg">
-              + Guardar en Menú
-            </button>
+            <div class="flex flex-wrap gap-2 items-center">
+              <input name="prodDesc" placeholder="Descripción corta opcional (ej. Incluye papas y aderezo)" class="flex-1 min-w-[220px] border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+              <button type="submit" class="bg-[#081736] hover:bg-[#10295c] text-amber-400 font-bold text-xs px-4 py-2.5 rounded-lg">
+                + Agregar al Menú
+              </button>
+            </div>
           </form>
 
-          <!-- TABLA EDITABLE DE COSTOS, PRECIOS Y STOCK -->
           <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
-            <h2 class="font-extrabold text-[#081736] text-base mb-3">Inventario, Costos de Compra y Márgenes</h2>
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+              <div>
+                <h2 class="font-extrabold text-[#081736] text-base">Editar Menú, Nombres, Costos y Existencias</h2>
+                <p class="text-xs text-slate-500">Edita cualquier nombre, categoría, costo, precio o suma piezas rápidas (+5 / +10). Cada cambio queda guardado en el historial.</p>
+              </div>
+            </div>
             <table class="w-full text-left border-collapse text-xs">
               <thead>
                 <tr class="border-b-2 border-slate-200 text-slate-500 uppercase">
-                  <th class="py-2 px-2">Platillo</th>
+                  <th class="py-2 px-2">Nombre del Producto (Editable)</th>
                   <th class="py-2 px-2">Categoría</th>
-                  <th class="py-2 px-2">Costo Compra ($)</th>
-                  <th class="py-2 px-2">Precio Venta ($)</th>
-                  <th class="py-2 px-2">Ganancia / Ud</th>
-                  <th class="py-2 px-2">Reinversión (${state.reinvestPercent}%)</th>
-                  <th class="py-2 px-2">Stock</th>
-                  <th class="py-2 px-2">Infinito (∞)</th>
+                  <th class="py-2 px-2">Costo ($)</th>
+                  <th class="py-2 px-2">Venta ($)</th>
+                  <th class="py-2 px-2">Ganancia</th>
+                  <th class="py-2 px-2">Stock / Agregar más</th>
+                  <th class="py-2 px-2">∞</th>
+                  <th class="py-2 px-2">Acción</th>
                 </tr>
               </thead>
               <tbody class="divide-y divide-slate-100">
                 ${state.products.map(p => {
                   const gain = p.price - p.costPrice;
-                  const reinv = gain > 0 ? gain * (state.reinvestPercent / 100) : 0;
                   return `
                     <tr>
-                      <td class="py-2.5 px-2 font-bold text-slate-900">${p.name}</td>
-                      <td class="py-2.5 px-2 text-slate-600">${p.category}</td>
+                      <td class="py-2.5 px-2">
+                        <input type="text" value="${p.name.replace(/"/g, '&quot;')}"
+                          onchange="updateProductField('${p.id}', 'name', this.value)"
+                          class="w-full min-w-[180px] border border-slate-300 focus:border-[#081736] rounded px-2 py-1 font-bold text-slate-900" />
+                      </td>
+                      <td class="py-2.5 px-2">
+                        <input type="text" value="${p.category.replace(/"/g, '&quot;')}"
+                          onchange="updateProductField('${p.id}', 'category', this.value)"
+                          class="w-28 border border-slate-300 rounded px-2 py-1 text-slate-700" />
+                      </td>
                       <td class="py-2.5 px-2">
                         <input type="number" step="0.5" value="${p.costPrice}"
                           onchange="updateProductField('${p.id}', 'costPrice', this.value)"
@@ -1018,16 +1476,29 @@
                           class="w-20 border border-amber-400 bg-amber-50 rounded px-2 py-1 font-bold" />
                       </td>
                       <td class="py-2.5 px-2 font-extrabold text-emerald-700">${fmt(gain)}</td>
-                      <td class="py-2.5 px-2 font-bold text-amber-700">${fmt(reinv)}</td>
                       <td class="py-2.5 px-2">
-                        <input type="number" value="${p.stock}" ${p.infinite ? 'disabled' : ''}
-                          onchange="updateProductField('${p.id}', 'stock', this.value)"
-                          class="w-16 border border-slate-300 rounded px-2 py-1 font-bold disabled:bg-slate-100" />
+                        <div class="flex items-center gap-1">
+                          <input type="number" value="${p.stock}" ${p.infinite ? 'disabled' : ''}
+                            onchange="updateProductField('${p.id}', 'stock', this.value)"
+                            class="w-16 border border-slate-300 rounded px-2 py-1 font-bold disabled:bg-slate-100" />
+                          ${!p.infinite ? `
+                            <button type="button" onclick="quickAddStock('${p.id}', 5)"
+                              class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-extrabold px-1.5 py-1 rounded text-[11px]" title="Sumar 5 unidades">+5</button>
+                            <button type="button" onclick="quickAddStock('${p.id}', 10)"
+                              class="bg-emerald-100 hover:bg-emerald-200 text-emerald-800 font-extrabold px-1.5 py-1 rounded text-[11px]" title="Sumar 10 unidades">+10</button>
+                          ` : ''}
+                        </div>
                       </td>
                       <td class="py-2.5 px-2">
                         <input type="checkbox" ${p.infinite ? 'checked' : ''}
                           onchange="updateProductField('${p.id}', 'infinite', this.checked)"
                           class="w-4 h-4 accent-[#081736]" />
+                      </td>
+                      <td class="py-2.5 px-2">
+                        <button type="button" onclick="deleteProduct('${p.id}')"
+                          class="text-rose-600 hover:bg-rose-50 px-2 py-1 rounded font-bold">
+                          Eliminar
+                        </button>
                       </td>
                     </tr>
                   `;
@@ -1035,97 +1506,228 @@
               </tbody>
             </table>
           </div>
+
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div class="flex flex-wrap justify-between items-center gap-2">
+              <div>
+                <h2 class="font-extrabold text-[#081736] text-base">📋 Registro de Modificaciones del Inventario</h2>
+                <p class="text-xs text-slate-500">Historial automático de entradas, ajustes de stock, cambios de nombre, precios y salidas por venta.</p>
+              </div>
+              <span class="text-xs font-bold bg-slate-100 text-slate-700 px-3 py-1 rounded-full">
+                ${state.inventoryLogs.length} movimientos registrados
+              </span>
+            </div>
+
+            <div class="max-h-80 overflow-y-auto overflow-x-auto border border-slate-200 rounded-xl">
+              <table class="w-full text-left border-collapse text-xs">
+                <thead class="bg-slate-100 sticky top-0 text-slate-600 uppercase">
+                  <tr>
+                    <th class="py-2 px-3">Fecha y Hora</th>
+                    <th class="py-2 px-3">Tipo de Movimiento</th>
+                    <th class="py-2 px-3">Producto</th>
+                    <th class="py-2 px-3">Detalle del Cambio</th>
+                    <th class="py-2 px-3">Usuario</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  ${state.inventoryLogs.map(log => {
+                    const badgeClass =
+                      log.action.includes('Entrada') || log.action.includes('Nuevo') ? 'bg-emerald-100 text-emerald-800' :
+                      log.action.includes('Nombre') || log.action.includes('Precio') || log.action.includes('Costo') ? 'bg-amber-100 text-amber-900' :
+                      log.action.includes('Salida') ? 'bg-blue-100 text-blue-800' :
+                      log.action.includes('Eliminado') ? 'bg-rose-100 text-rose-800' :
+                      'bg-slate-200 text-slate-800';
+                    return `
+                      <tr>
+                        <td class="py-2 px-3 font-mono text-slate-500 whitespace-nowrap">${log.date} ${log.time}</td>
+                        <td class="py-2 px-3 whitespace-nowrap">
+                          <span class="px-2 py-0.5 rounded-full font-bold text-[11px] ${badgeClass}">${log.action}</span>
+                        </td>
+                        <td class="py-2 px-3 font-bold text-slate-900">${log.product}</td>
+                        <td class="py-2 px-3 text-slate-700">${log.detail}</td>
+                        <td class="py-2 px-3 font-semibold text-slate-600">${log.user}</td>
+                      </tr>
+                    `;
+                  }).join('')}
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       `;
     }
 
-    function renderCash(totalSalesDay, totalCostDay, totalProfitDay, totalReinvestDay, totalFreeProfitDay) {
+    function renderCash(fin) {
       const validOrders = state.orders.filter(o => o.status !== 'Cancelado');
       const cashSales = validOrders.filter(o => o.paymentMethod === 'Efectivo').reduce((s, o) => s + o.totalSale, 0);
       const cardSales = validOrders.filter(o => o.paymentMethod === 'Tarjeta').reduce((s, o) => s + o.totalSale, 0);
       const transferSales = validOrders.filter(o => o.paymentMethod === 'Transferencia').reduce((s, o) => s + o.totalSale, 0);
 
-      const expenses = state.cashMovements
-        .filter(m => m.type === 'Gasto / Compra insumo' || m.type === 'Retiro')
+      const drawerOut = state.cashMovements
+        .filter(m => m.category !== 'Ingreso Adicional' && m.paidFromDrawer)
         .reduce((s, m) => s + m.amount, 0);
-      const extraIn = state.cashMovements
-        .filter(m => m.type === 'Ingreso adicional')
+      const drawerIn = state.cashMovements
+        .filter(m => m.category === 'Ingreso Adicional' && m.paidFromDrawer)
         .reduce((s, m) => s + m.amount, 0);
-      const expectedCash = state.openingFund + cashSales + extraIn - expenses;
+      const expectedCash = state.openingFund + cashSales + drawerIn - drawerOut;
 
       return `
-        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          <div class="lg:col-span-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <div class="flex justify-between items-center">
+        <div class="space-y-5">
+          <!-- ESTADO DE RESULTADOS DEL NEGOCIO (DESPUÉS DE REINVERTIR Y PAGAR SUELDOS) -->
+          <div class="bg-[#081736] text-white p-5 rounded-2xl border-2 border-amber-400 shadow-lg">
+            <div class="flex flex-wrap justify-between items-center gap-2 mb-4">
               <div>
-                <h2 class="font-extrabold text-[#081736] text-lg">Corte de Caja y Reinversión</h2>
-                <span class="text-xs font-bold ${state.cashOpen ? 'text-emerald-600' : 'text-rose-600'}">
-                  Estado: ${state.cashOpen ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
-                </span>
+                <h2 class="font-black text-amber-400 text-lg">Estado Financiero Real — SHOWROOM The Twins</h2>
+                <p class="text-xs text-slate-300">Desglose automático: Ventas − Costo Insumos − Reinversión (${state.reinvestPercent}%) − Sueldos − Gastos Operativos</p>
               </div>
-              <button onclick="toggleCashRegister()"
-                class="px-4 py-2 rounded-xl text-xs font-extrabold ${
-                  state.cashOpen ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
-                }">
-                ${state.cashOpen ? 'Cerrar Caja' : '+ Abrir Caja'}
-              </button>
+              <span class="text-xs bg-white/10 px-3 py-1.5 rounded-lg font-bold text-amber-200">
+                % Reinversión actual: ${state.reinvestPercent}%
+              </span>
             </div>
 
-            <div class="space-y-2 text-sm border-t border-b border-slate-100 py-3">
-              <div class="flex justify-between"><span>Fondo inicial en efectivo:</span><b>${fmt(state.openingFund)}</b></div>
-              <div class="flex justify-between text-emerald-700"><span>+ Ventas en Efectivo:</span><b>${fmt(cashSales)}</b></div>
-              <div class="flex justify-between text-slate-600"><span>Ventas Tarjeta / Transferencia:</span><b>${fmt(cardSales + transferSales)}</b></div>
-              <div class="flex justify-between text-blue-700"><span>+ Ingresos adicionales:</span><b>${fmt(extraIn)}</b></div>
-              <div class="flex justify-between text-rose-700"><span>- Gastos / Compras / Retiros:</span><b>${fmt(expenses)}</b></div>
-              <div class="flex justify-between text-base font-black text-[#081736] pt-2 border-t border-slate-200">
-                <span>Efectivo esperado en caja:</span><span>${fmt(expectedCash)}</span>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
+              <div class="bg-white/10 p-4 rounded-xl space-y-2">
+                <div class="flex justify-between"><span>1. Ingresos por Ventas Totales:</span><b class="text-white">${fmt(fin.totalSalesDay)}</b></div>
+                <div class="flex justify-between text-slate-300"><span>2. (-) Costo de Compra de Insumos:</span><b>-${fmt(fin.totalCostDay)}</b></div>
+                <div class="flex justify-between text-emerald-300 font-bold border-t border-white/15 pt-1.5">
+                  <span>= Ganancia Bruta de Ventas:</span><span>${fmt(fin.grossProfitDay)}</span>
+                </div>
+                <div class="flex justify-between text-amber-300"><span>3. (-) Fondo Separado para Reinversión (${state.reinvestPercent}%):</span><b>-${fmt(fin.totalReinvestDay)}</b></div>
+                <div class="flex justify-between text-purple-300"><span>4. (-) Pago de Sueldos / Nómina:</span><b>-${fmt(fin.payrollTotal)}</b></div>
+                <div class="flex justify-between text-rose-300"><span>5. (-) Gastos Operativos (gas, renta, insumos extra):</span><b>-${fmt(fin.operationalExpensesTotal)}</b></div>
+                ${fin.extraIncomeTotal > 0 ? `<div class="flex justify-between text-blue-300"><span>6. (+) Ingresos Adicionales:</span><b>+${fmt(fin.extraIncomeTotal)}</b></div>` : ''}
               </div>
-            </div>
 
-            <div class="bg-amber-50 border border-amber-300 p-3.5 rounded-xl space-y-1.5 text-xs">
-              <div class="font-extrabold text-amber-900 uppercase">Resumen de Ganancia y Reinversión del Día</div>
-              <div class="flex justify-between"><span>Recuperación de costo de insumos:</span><b>${fmt(totalCostDay)}</b></div>
-              <div class="flex justify-between text-emerald-800"><span>Ganancia neta generada:</span><b>${fmt(totalProfitDay)}</b></div>
-              <div class="flex justify-between text-amber-900 text-sm font-black">
-                <span>Fondo separado para reinvertir (${state.reinvestPercent}%):</span>
-                <span>${fmt(totalReinvestDay)}</span>
-              </div>
-              <div class="flex justify-between text-blue-900 font-bold">
-                <span>Utilidad libre para ti:</span>
-                <span>${fmt(totalFreeProfitDay)}</span>
+              <div class="bg-white text-slate-900 p-4 rounded-xl flex flex-col justify-between">
+                <div>
+                  <div class="text-xs font-extrabold uppercase text-slate-500">Ganancia Neta Final Disponible para Ti</div>
+                  <div class="text-3xl font-black mt-1 ${fin.netProfitAfterAll >= 0 ? 'text-emerald-600' : 'text-rose-600'}">
+                    ${fmt(fin.netProfitAfterAll)}
+                  </div>
+                  <p class="text-[11px] text-slate-500 mt-1">
+                    Este monto es lo que realmente te queda libre después de haber apartado tu reinversión (${fmt(fin.totalReinvestDay)}), pagado sueldos (${fmt(fin.payrollTotal)}) y cubierto gastos (${fmt(fin.operationalExpensesTotal)}).
+                  </p>
+                </div>
+                ${fin.ownerWithdrawalsTotal > 0 ? `
+                  <div class="mt-3 pt-2 border-t border-slate-200 flex justify-between text-xs font-bold text-slate-700">
+                    <span>Retiros personales ya realizados:</span>
+                    <span>${fmt(fin.ownerWithdrawalsTotal)} (Restante: ${fmt(fin.netProfitAfterAll - fin.ownerWithdrawalsTotal)})</span>
+                  </div>
+                ` : ''}
               </div>
             </div>
           </div>
 
-          <div class="lg:col-span-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
-            <h2 class="font-extrabold text-[#081736] text-base">Registrar Gasto, Compra de Insumo o Retiro</h2>
-            <form onsubmit="addCashMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-              <select name="movType" class="border border-slate-300 rounded-lg px-2.5 py-2 font-semibold">
-                <option>Gasto / Compra insumo</option>
-                <option>Retiro</option>
-                <option>Ingreso adicional</option>
-              </select>
-              <input name="movConcept" required placeholder="Concepto (ej. gas, carne, hielo)" class="border border-slate-300 rounded-lg px-3 py-2" />
-              <div class="flex gap-2">
-                <input name="movAmount" type="number" step="0.01" required placeholder="$ Monto" class="w-full border border-slate-300 rounded-lg px-2.5 py-2" />
-                <button type="submit" class="bg-[#081736] text-amber-400 font-bold px-3 rounded-lg">Guardar</button>
+          <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+            <!-- FORMULARIO DE REGISTRO DE GASTOS Y SUELDOS -->
+            <div class="lg:col-span-7 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+              <div>
+                <h2 class="font-extrabold text-[#081736] text-base">Registrar Gasto, Pago de Sueldo o Movimiento</h2>
+                <p class="text-xs text-slate-500">Selecciona si es sueldo de personal, gasto operativo o retiro, y si el dinero salió de la caja física.</p>
               </div>
-            </form>
 
-            <div class="space-y-2 max-h-64 overflow-y-auto text-xs">
-              ${state.cashMovements.length === 0 ? `
-                <p class="text-slate-400 text-center py-6">Sin movimientos adicionales registrados hoy.</p>
-              ` : state.cashMovements.map(m => `
-                <div class="flex justify-between items-center p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+              <form onsubmit="addCashMovement(event)" class="space-y-3 text-xs">
+                <div class="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
                   <div>
-                    <span class="font-bold text-slate-800">${m.concept}</span>
-                    <span class="text-slate-400 ml-2">${m.time} • ${m.type}</span>
+                    <label class="font-bold text-slate-600 block mb-1">Categoría</label>
+                    <select name="movCategory" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 font-bold">
+                      <option value="Sueldos / Nómina">👷 Sueldos / Nómina</option>
+                      <option value="Gasto Operativo / Insumos">🧾 Gasto Operativo / Insumos</option>
+                      <option value="Servicios / Renta">🏠 Servicios / Renta / Gas</option>
+                      <option value="Retiro Dueño">💼 Retiro de Ganancia Dueño</option>
+                      <option value="Ingreso Adicional">➕ Ingreso Adicional</option>
+                    </select>
                   </div>
-                  <span class="font-extrabold ${m.type === 'Ingreso adicional' ? 'text-emerald-700' : 'text-rose-700'}">
-                    ${m.type === 'Ingreso adicional' ? '+' : '-'}${fmt(m.amount)}
+                  <div>
+                    <label class="font-bold text-slate-600 block mb-1">Concepto / Empleado</label>
+                    <input name="movConcept" required placeholder="Ej. Turno Juan, tanque gas, hielo..." class="w-full border border-slate-300 rounded-lg px-3 py-2" />
+                  </div>
+                  <div>
+                    <label class="font-bold text-slate-600 block mb-1">Monto ($)</label>
+                    <input name="movAmount" type="number" step="0.01" required placeholder="0.00" class="w-full border border-slate-300 rounded-lg px-2.5 py-2 font-bold" />
+                  </div>
+                </div>
+
+                <div class="flex flex-wrap justify-between items-center gap-2 pt-1">
+                  <label class="flex items-center gap-2 font-semibold text-slate-700 cursor-pointer">
+                    <input name="movFromDrawer" type="checkbox" checked class="w-4 h-4 accent-[#081736]" />
+                    <span>El dinero salió/entró en efectivo de la caja física</span>
+                  </label>
+                  <button type="submit" class="bg-[#081736] hover:bg-[#10295c] text-amber-400 font-extrabold px-4 py-2 rounded-lg">
+                    + Registrar Movimiento
+                  </button>
+                </div>
+              </form>
+
+              <!-- LISTA DE GASTOS Y SUELDOS REGISTRADOS -->
+              <div class="border border-slate-200 rounded-xl overflow-hidden">
+                <div class="bg-slate-100 px-3 py-2 text-[11px] font-extrabold uppercase text-slate-600 flex justify-between">
+                  <span>Historial de Gastos, Sueldos y Movimientos</span>
+                  <span>${state.cashMovements.length} registros</span>
+                </div>
+                <div class="max-h-72 overflow-y-auto divide-y divide-slate-100 text-xs">
+                  ${state.cashMovements.length === 0 ? `
+                    <p class="text-slate-400 text-center py-6">Aún no has registrado sueldos ni gastos hoy.</p>
+                  ` : state.cashMovements.map(m => {
+                    const badgeColor =
+                      m.category === 'Sueldos / Nómina' ? 'bg-purple-100 text-purple-800' :
+                      m.category === 'Ingreso Adicional' ? 'bg-emerald-100 text-emerald-800' :
+                      m.category === 'Retiro Dueño' ? 'bg-blue-100 text-blue-800' :
+                      'bg-rose-100 text-rose-800';
+                    return `
+                      <div class="flex flex-wrap justify-between items-center gap-2 p-3 hover:bg-slate-50">
+                        <div>
+                          <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${badgeColor}">${m.category}</span>
+                          <span class="font-bold text-slate-900 ml-1.5">${m.concept}</span>
+                          <div class="text-[11px] text-slate-400 mt-0.5">
+                            ${m.date || ''} ${m.time} • ${m.paidFromDrawer ? 'Afecta efectivo en caja' : 'Pago externo / transferencia'}
+                          </div>
+                        </div>
+                        <div class="flex items-center gap-2">
+                          <span class="font-black text-sm ${m.category === 'Ingreso Adicional' ? 'text-emerald-700' : 'text-rose-700'}">
+                            ${m.category === 'Ingreso Adicional' ? '+' : '-'}${fmt(m.amount)}
+                          </span>
+                          <button onclick="deleteCashMovement(${m.id})" class="text-slate-400 hover:text-rose-600 font-bold px-1.5" title="Eliminar registro">✕</button>
+                        </div>
+                      </div>
+                    `;
+                  }).join('')}
+                </div>
+              </div>
+            </div>
+
+            <!-- ARQUEO DE EFECTIVO EN CAJA FÍSICA -->
+            <div class="lg:col-span-5 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+              <div class="flex justify-between items-center">
+                <div>
+                  <h2 class="font-extrabold text-[#081736] text-base">Arqueo de Efectivo en Caja</h2>
+                  <span class="text-xs font-bold ${state.cashOpen ? 'text-emerald-600' : 'text-rose-600'}">
+                    Estado: ${state.cashOpen ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
                   </span>
                 </div>
-              `).join('')}
+                <button onclick="toggleCashRegister()"
+                  class="px-4 py-2 rounded-xl text-xs font-extrabold ${
+                    state.cashOpen ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
+                  }">
+                  ${state.cashOpen ? 'Cerrar Caja' : '+ Abrir Caja'}
+                </button>
+              </div>
+
+              <div class="space-y-2 text-xs border-t border-b border-slate-100 py-3">
+                <div class="flex justify-between"><span>Fondo inicial en efectivo:</span><b>${fmt(state.openingFund)}</b></div>
+                <div class="flex justify-between text-emerald-700"><span>+ Ventas cobradas en Efectivo:</span><b>${fmt(cashSales)}</b></div>
+                <div class="flex justify-between text-slate-500"><span>Ventas Tarjeta / Transferencia (banco):</span><b>${fmt(cardSales + transferSales)}</b></div>
+                <div class="flex justify-between text-blue-700"><span>+ Ingresos adicionales a caja:</span><b>${fmt(drawerIn)}</b></div>
+                <div class="flex justify-between text-rose-700"><span>- Gastos / Sueldos pagados de caja:</span><b>-${fmt(drawerOut)}</b></div>
+                <div class="flex justify-between text-base font-black text-[#081736] pt-2 border-t border-slate-200">
+                  <span>Efectivo físico esperado en caja:</span><span>${fmt(expectedCash)}</span>
+                </div>
+              </div>
+
+              <div class="bg-slate-50 p-3 rounded-xl text-[11px] text-slate-600 space-y-1">
+                <div class="font-bold text-slate-800">💡 Consejo de control:</div>
+                <p>Cuando pagues el sueldo del turno o compres gas/insumos con billetes de la caja, deja marcada la casilla <b>"El dinero salió de la caja física"</b> para que tu corte de efectivo cuadre al centavo.</p>
+              </div>
             </div>
           </div>
         </div>
