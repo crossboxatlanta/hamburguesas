@@ -1,0 +1,1191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SHOWROOM The Twins — Punto de Venta & Monitoreo</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
+    body { font-family: 'Inter', sans-serif; }
+    @media print {
+      @page { size: 58mm auto; margin: 0; }
+      body * { visibility: hidden !important; }
+      #thermal-receipt-58mm, #thermal-receipt-58mm * { visibility: visible !important; }
+      #thermal-receipt-58mm {
+        position: fixed !important;
+        left: 0 !important;
+        top: 0 !important;
+        width: 58mm !important;
+        padding: 3mm 2.5mm !important;
+        margin: 0 !important;
+        background: #fff !important;
+        color: #000 !important;
+        font-family: 'Courier New', Courier, monospace !important;
+        font-size: 11px !important;
+        line-height: 1.25 !important;
+        box-shadow: none !important;
+        border: none !important;
+      }
+    }
+    .ticket-58mm {
+      width: 240px;
+      font-family: 'Courier New', Courier, monospace;
+      font-size: 11px;
+      line-height: 1.25;
+      color: #000;
+      background: #fff;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 text-slate-900 min-h-screen">
+  <div id="app"></div>
+
+  <!-- Contenedor oculto exclusivo para impresión térmica 58mm -->
+  <div id="thermal-receipt-58mm" class="hidden print:block"></div>
+
+  <script>
+    const STORAGE_KEY = 'the_twins_showroom_pos_v1';
+
+    const DEFAULT_STATE = {
+      businessName: 'SHOWROOM The Twins',
+      subtitle: 'ESPACIO COLABORATIVO PARA EMPRENDEDORES',
+      location: 'Showroom / Puesto de Comida',
+      reinvestPercent: 50,
+      cashOpen: true,
+      openingFund: 500,
+      cashMovements: [],
+      activeTab: 'pos',
+      selectedCategory: 'Todos',
+      searchQuery: '',
+      serviceType: 'Comer aquí',
+      selectedTable: 'Barra 1',
+      paymentMethod: 'Efectivo',
+      amountPaid: '',
+      orderNote: '',
+      cart: [],
+      lastTicket: null,
+      printerStatus: 'Desconectada (Lista para MP58C6)',
+      products: [
+        { id: 'TWR-01', name: 'Banderillas', category: 'Antojitos', costPrice: 28, price: 65, stock: 30, infinite: false, desc: 'Crujientes con aderezos' },
+        { id: 'TWR-02', name: 'Orden de Papas', category: 'Snacks', costPrice: 20, price: 50, stock: 40, infinite: false, desc: 'Papas a la francesa doradas' },
+        { id: 'TWR-03', name: 'Ramen', category: 'Especiales', costPrice: 38, price: 85, stock: 20, infinite: false, desc: 'Caldo preparado con huevo y cebollín' },
+        { id: 'TWR-04', name: 'Marquesitas', category: 'Postres', costPrice: 12, price: 30, stock: 35, infinite: false, desc: 'Crujiente rellena tradicional' },
+        { id: 'TWR-05', name: 'Hamburguesas (Arrachera y Sirloin)', category: 'Platillos', costPrice: 45, price: 90, stock: 25, infinite: false, desc: 'Carne de arrachera y sirloin con queso y vegetales' },
+        { id: 'TWR-06', name: 'Orden de Alitas', category: 'Platillos', costPrice: 46, price: 90, stock: 25, infinite: false, desc: 'Incluye papas a la francesa y aderezo' },
+        { id: 'TWR-07', name: 'Refresco / Bebida', category: 'Bebidas', costPrice: 11, price: 25, stock: 0, infinite: true, desc: 'Lata o botella fría' },
+        { id: 'TWR-08', name: 'Extra Queso / Tocino', category: 'Extras', costPrice: 8, price: 20, stock: 0, infinite: true, desc: 'Complemento adicional' }
+      ],
+      tables: [
+        { id: 'Barra 1', zone: 'Barra', status: 'Libre', total: 0 },
+        { id: 'Barra 2', zone: 'Barra', status: 'Libre', total: 0 },
+        { id: 'Mesa 1', zone: 'Showroom', status: 'Libre', total: 0 },
+        { id: 'Mesa 2', zone: 'Showroom', status: 'Libre', total: 0 },
+        { id: 'Mesa 3', zone: 'Terraza', status: 'Libre', total: 0 },
+        { id: 'Para Llevar', zone: 'Express', status: 'Libre', total: 0 }
+      ],
+      orders: [],
+      liveLogs: [
+        { time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }), msg: 'Sistema iniciado — SHOWROOM The Twins en línea', type: 'system' }
+      ]
+    };
+
+    let state = loadState();
+    let btCharacteristic = null;
+
+    function loadState() {
+      try {
+        const saved = localStorage.getItem(STORAGE_KEY);
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          return { ...DEFAULT_STATE, ...parsed, cart: parsed.cart || [] };
+        }
+      } catch (e) {}
+      return JSON.parse(JSON.stringify(DEFAULT_STATE));
+    }
+
+    function saveState() {
+      try {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+      } catch (e) {}
+    }
+
+    function addLog(msg, type = 'info') {
+      const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+      state.liveLogs.unshift({ time, msg, type });
+      if (state.liveLogs.length > 40) state.liveLogs.pop();
+    }
+
+    function fmt(num) {
+      return '$' + Number(num || 0).toFixed(2);
+    }
+
+    function calcFinancials(saleTotal, costTotal) {
+      const profit = saleTotal - costTotal;
+      const reinvest = profit > 0 ? (profit * (state.reinvestPercent / 100)) : 0;
+      const freeProfit = profit - reinvest;
+      return { profit, reinvest, freeProfit };
+    }
+
+    // --- ACCIONES DEL CARRITO ---
+    function addToCart(productId) {
+      const prod = state.products.find(p => p.id === productId);
+      if (!prod) return;
+      if (!prod.infinite && prod.stock <= 0) {
+        alert('Producto agotado en inventario.');
+        return;
+      }
+      const existing = state.cart.find(item => item.id === productId);
+      if (existing) {
+        if (!prod.infinite && existing.qty + 1 > prod.stock) {
+          alert('No hay más stock disponible de ' + prod.name);
+          return;
+        }
+        existing.qty += 1;
+      } else {
+        state.cart.push({
+          id: prod.id,
+          name: prod.name,
+          costPrice: Number(prod.costPrice),
+          price: Number(prod.price),
+          qty: 1
+        });
+      }
+      saveState();
+      render();
+    }
+
+    function updateCartQty(idx, delta) {
+      const item = state.cart[idx];
+      if (!item) return;
+      const prod = state.products.find(p => p.id === item.id);
+      const nextQty = item.qty + delta;
+      if (nextQty <= 0) {
+        state.cart.splice(idx, 1);
+      } else {
+        if (prod && !prod.infinite && nextQty > prod.stock) {
+          alert('Stock máximo alcanzado.');
+          return;
+        }
+        item.qty = nextQty;
+      }
+      saveState();
+      render();
+    }
+
+    function clearCart() {
+      state.cart = [];
+      state.amountPaid = '';
+      state.orderNote = '';
+      saveState();
+      render();
+    }
+
+    function confirmOrder() {
+      if (!state.cashOpen) {
+        alert('La caja está cerrada. Ábrela en la pestaña "Caja" antes de registrar ventas.');
+        return;
+      }
+      if (state.cart.length === 0) return;
+
+      const totalSale = state.cart.reduce((s, i) => s + i.price * i.qty, 0);
+      const totalCost = state.cart.reduce((s, i) => s + i.costPrice * i.qty, 0);
+      const paid = state.paymentMethod === 'Efectivo' ? (parseFloat(state.amountPaid) || totalSale) : totalSale;
+
+      if (state.paymentMethod === 'Efectivo' && paid < totalSale) {
+        alert('El monto recibido es menor al total de la venta.');
+        return;
+      }
+
+      const change = state.paymentMethod === 'Efectivo' ? Math.max(0, paid - totalSale) : 0;
+      const fin = calcFinancials(totalSale, totalCost);
+      const folio = 1000 + state.orders.length + 1;
+
+      // Descontar inventario
+      state.cart.forEach(item => {
+        const prod = state.products.find(p => p.id === item.id);
+        if (prod && !prod.infinite) {
+          prod.stock = Math.max(0, prod.stock - item.qty);
+          if (prod.stock <= 5) {
+            addLog(`Stock bajo en ${prod.name}: quedan ${prod.stock} uds`, 'alert');
+          }
+        }
+      });
+
+      const order = {
+        id: folio,
+        date: new Date().toLocaleString('es-MX'),
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        items: JSON.parse(JSON.stringify(state.cart)),
+        serviceType: state.serviceType,
+        table: state.selectedTable,
+        paymentMethod: state.paymentMethod,
+        totalSale,
+        totalCost,
+        profit: fin.profit,
+        reinvest: fin.reinvest,
+        freeProfit: fin.freeProfit,
+        reinvestPercent: state.reinvestPercent,
+        paid,
+        change,
+        note: state.orderNote,
+        status: 'Preparando'
+      };
+
+      state.orders.unshift(order);
+      state.lastTicket = order;
+
+      // Actualizar estado de mesa/barra si aplica
+      if (state.serviceType === 'Comer aquí') {
+        const tbl = state.tables.find(t => t.id === state.selectedTable);
+        if (tbl) {
+          tbl.status = 'Ocupada';
+          tbl.total = (tbl.total || 0) + totalSale;
+        }
+      }
+
+      addLog(`Venta #${folio} (${fmt(totalSale)}) • Ganancia: ${fmt(fin.profit)} • Reinversión: ${fmt(fin.reinvest)}`, 'sale');
+      state.cart = [];
+      state.amountPaid = '';
+      state.orderNote = '';
+      saveState();
+      render();
+    }
+
+    // --- IMPRESIÓN TÉRMICA 58MM (MP58C6) ---
+    function buildPlainReceiptText(order) {
+      const line = '--------------------------------';
+      let txt = '';
+      txt += '      SHOWROOM THE TWINS\n';
+      txt += '  ESPACIO COLABORATIVO EMPREND.\n';
+      txt += line + '\n';
+      txt += `Folio: #${order.id}  ${order.time}\n`;
+      txt += `Servicio: ${order.serviceType} (${order.table})\n`;
+      txt += `Pago: ${order.paymentMethod}\n`;
+      txt += line + '\n';
+      order.items.forEach(it => {
+        const sub = (it.price * it.qty).toFixed(2);
+        txt += `${it.qty}x ${it.name.substring(0, 18)}\n`;
+        txt += `   $${it.price.toFixed(2)} c/u      $${sub}\n`;
+      });
+      if (order.note) {
+        txt += `Nota: ${order.note}\n`;
+      }
+      txt += line + '\n';
+      txt += `TOTAL:              $${order.totalSale.toFixed(2)}\n`;
+      if (order.paymentMethod === 'Efectivo') {
+        txt += `RECIBIDO:           $${order.paid.toFixed(2)}\n`;
+        txt += `CAMBIO:             $${order.change.toFixed(2)}\n`;
+      }
+      txt += line + '\n';
+      txt += '  ¡GRACIAS POR TU COMPRA!\n\n\n';
+      return txt;
+    }
+
+    function printSystem58mm(order) {
+      if (!order) return;
+      const el = document.getElementById('thermal-receipt-58mm');
+      el.innerHTML = `
+        <div style="text-align:center; font-weight:bold; font-size:13px;">SHOWROOM THE TWINS</div>
+        <div style="text-align:center; font-size:9px;">ESPACIO COLABORATIVO PARA EMPRENDEDORES</div>
+        <div style="border-top:1px dashed #000; margin:4px 0;"></div>
+        <div>Folio: <b>#${order.id}</b> | ${order.time}</div>
+        <div>Servicio: ${order.serviceType} - ${order.table}</div>
+        <div>Pago: ${order.paymentMethod}</div>
+        <div style="border-top:1px dashed #000; margin:4px 0;"></div>
+        ${order.items.map(i => `
+          <div style="margin-bottom:3px;">
+            <div><b>${i.qty}x ${i.name}</b></div>
+            <div style="display:flex; justify-content:space-between;">
+              <span>${fmt(i.price)} c/u</span>
+              <span><b>${fmt(i.price * i.qty)}</b></span>
+            </div>
+          </div>
+        `).join('')}
+        ${order.note ? `<div style="font-size:10px; margin-top:2px;">Nota: ${order.note}</div>` : ''}
+        <div style="border-top:1px dashed #000; margin:4px 0;"></div>
+        <div style="display:flex; justify-content:space-between; font-size:13px; font-weight:bold;">
+          <span>TOTAL:</span><span>${fmt(order.totalSale)}</span>
+        </div>
+        ${order.paymentMethod === 'Efectivo' ? `
+          <div style="display:flex; justify-content:space-between;"><span>Recibido:</span><span>${fmt(order.paid)}</span></div>
+          <div style="display:flex; justify-content:space-between; font-weight:bold;"><span>Cambio:</span><span>${fmt(order.change)}</span></div>
+        ` : ''}
+        <div style="border-top:1px dashed #000; margin:6px 0;"></div>
+        <div style="text-align:center; font-size:10px;">¡Gracias por apoyar a emprendedores!</div>
+        <div style="height:12mm;"></div>
+      `;
+      addLog(`Ticket #${order.id} enviado a impresión 58mm`, 'print');
+      saveState();
+      window.print();
+    }
+
+    async function connectBluetoothMP58C6() {
+      if (!navigator.bluetooth) {
+        alert('Tu navegador no soporta Web Bluetooth directo. Usa Chrome/Edge en Android o Windows, o usa el botón RawBT / Impresión 58mm.');
+        return;
+      }
+      try {
+        state.printerStatus = 'Buscando MP58C6...';
+        render();
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ['000018f0-0000-1000-8000-00805f9b34fb', '49535343-fe7d-4ae5-8fa9-9fafd205e455']
+        });
+        const server = await device.gatt.connect();
+        const services = await server.getPrimaryServices();
+        for (const service of services) {
+          const chars = await service.getCharacteristics();
+          for (const ch of chars) {
+            if (ch.properties.write || ch.properties.writeWithoutResponse) {
+              btCharacteristic = ch;
+              break;
+            }
+          }
+          if (btCharacteristic) break;
+        }
+        state.printerStatus = `Conectada: ${device.name || 'MP58C6'}`;
+        addLog(`Impresora Bluetooth conectada: ${device.name || 'MP58C6'}`, 'print');
+        saveState();
+        render();
+      } catch (err) {
+        state.printerStatus = 'No conectada (Intenta de nuevo o usa RawBT/58mm)';
+        render();
+      }
+    }
+
+    async function printBluetoothESCPOS(order) {
+      if (!order) return;
+      if (!btCharacteristic) {
+        await connectBluetoothMP58C6();
+        if (!btCharacteristic) return;
+      }
+      try {
+        const encoder = new TextEncoder();
+        const init = new Uint8Array([0x1B, 0x40]);
+        const textBytes = encoder.encode(buildPlainReceiptText(order));
+        const payload = new Uint8Array(init.length + textBytes.length);
+        payload.set(init, 0);
+        payload.set(textBytes, init.length);
+
+        const chunkSize = 100;
+        for (let i = 0; i < payload.length; i += chunkSize) {
+          const chunk = payload.slice(i, i + chunkSize);
+          await btCharacteristic.writeValue(chunk);
+        }
+        addLog(`Ticket #${order.id} impreso por Bluetooth ESC/POS en MP58C6`, 'print');
+        saveState();
+        render();
+      } catch (e) {
+        alert('Se perdió la conexión Bluetooth con la MP58C6. Reconecta o usa Impresión 58mm.');
+        btCharacteristic = null;
+        state.printerStatus = 'Desconectada';
+        render();
+      }
+    }
+
+    function printRawBT(order) {
+      if (!order) return;
+      const text = buildPlainReceiptText(order);
+      const url = 'rawbt:base64,' + btoa(unescape(encodeURIComponent(text)));
+      addLog(`Ticket #${order.id} enviado a RawBT (Android)`, 'print');
+      saveState();
+      window.location.href = url;
+    }
+
+    // --- GESTIÓN DE INVENTARIO Y PRODUCTOS ---
+    function updateProductField(id, field, value) {
+      const prod = state.products.find(p => p.id === id);
+      if (!prod) return;
+      if (field === 'infinite') {
+        prod.infinite = Boolean(value);
+      } else if (field === 'name' || field === 'category') {
+        prod[field] = value;
+      } else {
+        prod[field] = Math.max(0, parseFloat(value) || 0);
+      }
+      saveState();
+      render();
+    }
+
+    function addNewProduct(e) {
+      e.preventDefault();
+      const form = e.target;
+      const name = form.prodName.value.trim();
+      const category = form.prodCategory.value.trim() || 'Antojitos';
+      const costPrice = parseFloat(form.prodCost.value) || 0;
+      const price = parseFloat(form.prodPrice.value) || 0;
+      const stock = parseInt(form.prodStock.value) || 0;
+      const infinite = form.prodInfinite.checked;
+      if (!name) return;
+
+      state.products.push({
+        id: 'TWR-' + String(state.products.length + 1).padStart(2, '0'),
+        name,
+        category,
+        costPrice,
+        price,
+        stock,
+        infinite,
+        desc: 'Producto agregado al menú'
+      });
+      addLog(`Nuevo producto agregado: ${name} (Costo ${fmt(costPrice)} / Venta ${fmt(price)})`, 'system');
+      form.reset();
+      saveState();
+      render();
+    }
+
+    function toggleTableStatus(tableId) {
+      const tbl = state.tables.find(t => t.id === tableId);
+      if (!tbl) return;
+      if (tbl.status === 'Libre') {
+        tbl.status = 'Ocupada';
+      } else if (tbl.status === 'Ocupada') {
+        tbl.status = 'Cuenta pedida';
+      } else {
+        tbl.status = 'Libre';
+        tbl.total = 0;
+      }
+      addLog(`${tbl.id} cambió a estado: ${tbl.status}`, 'info');
+      saveState();
+      render();
+    }
+
+    function selectTableForOrder(tableId) {
+      state.selectedTable = tableId;
+      state.serviceType = tableId === 'Para Llevar' ? 'Para llevar' : 'Comer aquí';
+      state.activeTab = 'pos';
+      saveState();
+      render();
+    }
+
+    function updateOrderStatus(orderId, status) {
+      const ord = state.orders.find(o => o.id === orderId);
+      if (!ord) return;
+      ord.status = status;
+      addLog(`Pedido #${orderId} marcado como: ${status}`, 'info');
+      saveState();
+      render();
+    }
+
+    function addCashMovement(e) {
+      e.preventDefault();
+      const form = e.target;
+      const type = form.movType.value;
+      const concept = form.movConcept.value.trim();
+      const amount = parseFloat(form.movAmount.value) || 0;
+      if (!concept || amount <= 0) return;
+      state.cashMovements.unshift({
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        type,
+        concept,
+        amount
+      });
+      addLog(`Movimiento de caja (${type}): ${concept} por ${fmt(amount)}`, 'info');
+      form.reset();
+      saveState();
+      render();
+    }
+
+    function toggleCashRegister() {
+      if (state.cashOpen) {
+        const counted = prompt('Ingresa el efectivo físico contado en caja:');
+        if (counted === null) return;
+        const cashSales = state.orders
+          .filter(o => o.status !== 'Cancelado' && o.paymentMethod === 'Efectivo')
+          .reduce((s, o) => s + o.totalSale, 0);
+        const expenses = state.cashMovements
+          .filter(m => m.type === 'Gasto / Compra insumo' || m.type === 'Retiro')
+          .reduce((s, m) => s + m.amount, 0);
+        const extraIn = state.cashMovements
+          .filter(m => m.type === 'Ingreso adicional')
+          .reduce((s, m) => s + m.amount, 0);
+        const expected = state.openingFund + cashSales + extraIn - expenses;
+        const diff = (parseFloat(counted) || 0) - expected;
+        state.cashOpen = false;
+        addLog(`Caja CERRADA. Esperado: ${fmt(expected)} | Contado: ${fmt(counted)} | Diferencia: ${fmt(diff)}`, 'alert');
+      } else {
+        const fund = prompt('Fondo inicial de caja en efectivo ($):', '500');
+        if (fund === null) return;
+        state.openingFund = parseFloat(fund) || 0;
+        state.cashOpen = true;
+        addLog(`Caja ABIERTA con fondo inicial de ${fmt(state.openingFund)}`, 'system');
+      }
+      saveState();
+      render();
+    }
+
+    // --- RENDERIZADO DE INTERFAZ ---
+    function render() {
+      const validOrders = state.orders.filter(o => o.status !== 'Cancelado');
+      const totalSalesDay = validOrders.reduce((s, o) => s + o.totalSale, 0);
+      const totalCostDay = validOrders.reduce((s, o) => s + o.totalCost, 0);
+      const totalProfitDay = validOrders.reduce((s, o) => s + o.profit, 0);
+      const totalReinvestDay = validOrders.reduce((s, o) => s + o.reinvest, 0);
+      const totalFreeProfitDay = validOrders.reduce((s, o) => s + o.freeProfit, 0);
+
+      const cartTotal = state.cart.reduce((s, i) => s + i.price * i.qty, 0);
+      const cartCost = state.cart.reduce((s, i) => s + i.costPrice * i.qty, 0);
+      const cartFin = calcFinancials(cartTotal, cartCost);
+      const paidVal = parseFloat(state.amountPaid) || 0;
+      const changeVal = state.paymentMethod === 'Efectivo' && paidVal >= cartTotal ? paidVal - cartTotal : 0;
+
+      const categories = ['Todos', ...new Set(state.products.map(p => p.category))];
+      const filteredProducts = state.products.filter(p => {
+        const matchCat = state.selectedCategory === 'Todos' || p.category === state.selectedCategory;
+        const matchSearch = p.name.toLowerCase().includes(state.searchQuery.toLowerCase());
+        return matchCat && matchSearch;
+      });
+
+      const app = document.getElementById('app');
+      app.innerHTML = `
+        <!-- BARRA SUPERIOR IDENTIDAD THE TWINS -->
+        <header class="bg-[#081736] text-white border-b-4 border-amber-400 sticky top-0 z-30 shadow-lg">
+          <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-3">
+              <div class="bg-amber-400 text-[#081736] font-black px-3 py-1.5 rounded-xl text-lg tracking-tight shadow">
+                THE TWINS
+              </div>
+              <div>
+                <h1 class="font-extrabold text-base sm:text-lg leading-tight tracking-wide">SHOWROOM The Twins</h1>
+                <p class="text-[11px] text-amber-300 font-semibold tracking-wider">ESPACIO COLABORATIVO PARA EMPRENDEDORES</p>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <span class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-2.5 py-1 rounded-full font-semibold">
+                <span class="w-2 h-2 rounded-full bg-emerald-400 animate-ping"></span> EN VIVO
+              </span>
+              <div class="bg-white/10 px-3 py-1.5 rounded-lg flex items-center gap-2">
+                <span class="text-slate-300">% Reinversión:</span>
+                <input type="number" min="0" max="100" value="${state.reinvestPercent}"
+                  onchange="state.reinvestPercent = Math.min(100, Math.max(0, Number(this.value)||0)); saveState(); render();"
+                  class="w-14 bg-[#0d2352] border border-amber-400/50 rounded px-1.5 py-0.5 text-amber-300 font-bold text-center" />
+                <span class="text-amber-300 font-bold">%</span>
+              </div>
+              <button onclick="state.activeTab='printer'; render();"
+                class="bg-amber-400 hover:bg-amber-300 text-[#081736] font-bold px-3 py-1.5 rounded-lg transition">
+                🖨️ MP58C6 (58mm)
+              </button>
+            </div>
+          </div>
+
+          <!-- MENÚ DE NAVEGACIÓN -->
+          <nav class="bg-[#0d2352] px-4 py-2 overflow-x-auto">
+            <div class="max-w-7xl mx-auto flex gap-2 text-xs sm:text-sm font-semibold">
+              ${[
+                ['pos', '🍔 Nuevo Pedido'],
+                ['live', '📡 Monitoreo Vivo'],
+                ['tables', '🪑 Mesas y Barra'],
+                ['inventory', '📦 Inventario y Costos'],
+                ['cash', '💰 Caja y Ganancias'],
+                ['printer', '🖨️ Impresora MP58C6']
+              ].map(([key, label]) => `
+                <button onclick="state.activeTab='${key}'; saveState(); render();"
+                  class="px-3.5 py-2 rounded-lg whitespace-nowrap transition ${
+                    state.activeTab === key
+                      ? 'bg-amber-400 text-[#081736] font-extrabold shadow'
+                      : 'text-slate-200 hover:bg-white/10'
+                  }">
+                  ${label}
+                </button>
+              `).join('')}
+            </div>
+          </nav>
+        </header>
+
+        <!-- MÉTRICAS RÁPIDAS DEL DÍA -->
+        <section class="max-w-7xl mx-auto px-4 pt-4">
+          <div class="grid grid-cols-2 sm:grid-cols-5 gap-3">
+            <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+              <div class="text-xs text-slate-500 font-medium">Ventas del Día</div>
+              <div class="text-xl font-black text-slate-900 mt-0.5">${fmt(totalSalesDay)}</div>
+              <div class="text-[11px] text-slate-400">${validOrders.length} pedidos válidos</div>
+            </div>
+            <div class="bg-white p-3.5 rounded-xl border border-slate-200 shadow-sm">
+              <div class="text-xs text-slate-500 font-medium">Costo Insumos</div>
+              <div class="text-xl font-black text-slate-700 mt-0.5">${fmt(totalCostDay)}</div>
+              <div class="text-[11px] text-slate-400">Recuperación de inversión</div>
+            </div>
+            <div class="bg-emerald-50 p-3.5 rounded-xl border border-emerald-200 shadow-sm">
+              <div class="text-xs text-emerald-700 font-semibold">Ganancia Neta</div>
+              <div class="text-xl font-black text-emerald-700 mt-0.5">${fmt(totalProfitDay)}</div>
+              <div class="text-[11px] text-emerald-600">Venta menos costo</div>
+            </div>
+            <div class="bg-amber-50 p-3.5 rounded-xl border border-amber-300 shadow-sm">
+              <div class="text-xs text-amber-800 font-semibold">Para Reinvertir (${state.reinvestPercent}%)</div>
+              <div class="text-xl font-black text-amber-700 mt-0.5">${fmt(totalReinvestDay)}</div>
+              <div class="text-[11px] text-amber-700">Fondo crecimiento</div>
+            </div>
+            <div class="bg-blue-50 p-3.5 rounded-xl border border-blue-200 shadow-sm col-span-2 sm:col-span-1">
+              <div class="text-xs text-blue-800 font-semibold">Utilidad Libre</div>
+              <div class="text-xl font-black text-blue-900 mt-0.5">${fmt(totalFreeProfitDay)}</div>
+              <div class="text-[11px] text-blue-600">Ganancia disponible</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- CONTENIDO PRINCIPAL POR PESTAÑA -->
+        <main class="max-w-7xl mx-auto px-4 py-5">
+          ${state.activeTab === 'pos' ? renderPOS(categories, filteredProducts, cartTotal, cartCost, cartFin, changeVal) : ''}
+          ${state.activeTab === 'live' ? renderLiveMonitor() : ''}
+          ${state.activeTab === 'tables' ? renderTables() : ''}
+          ${state.activeTab === 'inventory' ? renderInventory() : ''}
+          ${state.activeTab === 'cash' ? renderCash(totalSalesDay, totalCostDay, totalProfitDay, totalReinvestDay, totalFreeProfitDay) : ''}
+          ${state.activeTab === 'printer' ? renderPrinterTab() : ''}
+        </main>
+      `;
+    }
+
+    function renderPOS(categories, filteredProducts, cartTotal, cartCost, cartFin, changeVal) {
+      return `
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- CATÁLOGO DE PRODUCTOS -->
+          <div class="lg:col-span-7 space-y-4">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <div class="flex flex-wrap gap-2 justify-between items-center">
+                <input type="text" placeholder="Buscar hamburguesa, alitas, ramen..."
+                  value="${state.searchQuery}"
+                  oninput="state.searchQuery = this.value; render();"
+                  class="flex-1 min-w-[200px] border border-slate-300 rounded-xl px-3.5 py-2 text-sm focus:outline-none focus:border-[#081736]" />
+                <div class="flex gap-1.5 overflow-x-auto">
+                  ${categories.map(cat => `
+                    <button onclick="state.selectedCategory='${cat}'; render();"
+                      class="px-3 py-1.5 rounded-lg text-xs font-bold transition ${
+                        state.selectedCategory === cat
+                          ? 'bg-[#081736] text-amber-400'
+                          : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
+                      }">
+                      ${cat}
+                    </button>
+                  `).join('')}
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                ${filteredProducts.map(prod => {
+                  const unitProfit = prod.price - prod.costPrice;
+                  const outOfStock = !prod.infinite && prod.stock <= 0;
+                  return `
+                    <div onclick="${outOfStock ? '' : `addToCart('${prod.id}')`}"
+                      class="p-3.5 rounded-xl border transition select-none ${
+                        outOfStock
+                          ? 'bg-slate-100 border-slate-200 opacity-60 cursor-not-allowed'
+                          : 'bg-white border-slate-200 hover:border-amber-400 hover:shadow-md cursor-pointer active:scale-[0.99]'
+                      }">
+                      <div class="flex justify-between items-start gap-2">
+                        <div>
+                          <span class="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-slate-100 text-slate-600">${prod.category}</span>
+                          <h3 class="font-extrabold text-slate-900 text-sm mt-1">${prod.name}</h3>
+                          <p class="text-xs text-slate-500 mt-0.5">${prod.desc || ''}</p>
+                        </div>
+                        <div class="bg-amber-400 text-[#081736] font-black px-2.5 py-1 rounded-lg text-base shadow-sm">
+                          ${fmt(prod.price)}
+                        </div>
+                      </div>
+                      <div class="mt-3 pt-2 border-t border-slate-100 flex justify-between items-center text-[11px]">
+                        <span class="text-slate-500">Costo: <b>${fmt(prod.costPrice)}</b> | Ganancia: <b class="text-emerald-600">${fmt(unitProfit)}</b></span>
+                        <span class="font-bold ${prod.infinite ? 'text-blue-600' : prod.stock <= 5 ? 'text-rose-600' : 'text-slate-600'}">
+                          ${prod.infinite ? 'Stock: ∞' : outOfStock ? 'AGOTADO' : `Stock: ${prod.stock}`}
+                        </span>
+                      </div>
+                    </div>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          </div>
+
+          <!-- COMANDA ACTUAL + CÁLCULO DE GANANCIA Y TICKET -->
+          <div class="lg:col-span-5 space-y-4">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+              <div class="flex justify-between items-center border-b border-slate-100 pb-2.5">
+                <h2 class="font-extrabold text-[#081736] text-base">Comanda Actual</h2>
+                ${state.cart.length > 0 ? `<button onclick="clearCart()" class="text-xs text-rose-600 font-bold hover:underline">Vaciar</button>` : ''}
+              </div>
+
+              <!-- TIPO DE SERVICIO Y MESA -->
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label class="font-bold text-slate-600 block mb-1">Servicio</label>
+                  <select onchange="state.serviceType=this.value; saveState(); render();"
+                    class="w-full border border-slate-300 rounded-lg px-2.5 py-2 font-semibold">
+                    ${['Comer aquí', 'Para llevar', 'Entrega'].map(s => `<option ${state.serviceType === s ? 'selected' : ''}>${s}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="font-bold text-slate-600 block mb-1">Mesa / Barra</label>
+                  <select onchange="state.selectedTable=this.value; saveState(); render();"
+                    class="w-full border border-slate-300 rounded-lg px-2.5 py-2 font-semibold">
+                    ${state.tables.map(t => `<option ${state.selectedTable === t.id ? 'selected' : ''}>${t.id}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+
+              <!-- LISTA DE ITEMS EN CARRITO -->
+              <div class="max-h-56 overflow-y-auto divide-y divide-slate-100">
+                ${state.cart.length === 0 ? `
+                  <div class="py-8 text-center text-slate-400 text-sm">
+                    Toca los platillos del menú para agregarlos a la orden.
+                  </div>
+                ` : state.cart.map((item, idx) => `
+                  <div class="py-2.5 flex items-center justify-between gap-2">
+                    <div class="flex-1">
+                      <div class="font-bold text-sm text-slate-900">${item.name}</div>
+                      <div class="text-[11px] text-slate-500">
+                        Venta: ${fmt(item.price)} | Costo: ${fmt(item.costPrice)} | Ganancia: <span class="text-emerald-600 font-bold">${fmt((item.price - item.costPrice) * item.qty)}</span>
+                      </div>
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <button onclick="updateCartQty(${idx}, -1)" class="w-7 h-7 rounded-lg bg-slate-200 font-black text-slate-800">-</button>
+                      <span class="w-6 text-center font-extrabold text-sm">${item.qty}</span>
+                      <button onclick="updateCartQty(${idx}, 1)" class="w-7 h-7 rounded-lg bg-[#081736] text-amber-400 font-black">+</button>
+                    </div>
+                    <div class="w-16 text-right font-extrabold text-sm">${fmt(item.price * item.qty)}</div>
+                  </div>
+                `).join('')}
+              </div>
+
+              <!-- DESGLOSE FINANCIERO DE ESTA VENTA -->
+              <div class="bg-slate-50 p-3 rounded-xl border border-slate-200 space-y-1.5 text-xs">
+                <div class="flex justify-between text-slate-600">
+                  <span>Costo total insumos:</span>
+                  <span class="font-bold">${fmt(cartCost)}</span>
+                </div>
+                <div class="flex justify-between text-emerald-700 font-bold">
+                  <span>Ganancia neta de esta venta:</span>
+                  <span>${fmt(cartFin.profit)}</span>
+                </div>
+                <div class="flex justify-between text-amber-800 font-bold">
+                  <span>Separar para reinversión (${state.reinvestPercent}%):</span>
+                  <span>${fmt(cartFin.reinvest)}</span>
+                </div>
+                <div class="flex justify-between text-blue-800 font-bold">
+                  <span>Utilidad libre:</span>
+                  <span>${fmt(cartFin.freeProfit)}</span>
+                </div>
+                <div class="border-t border-slate-200 pt-2 flex justify-between items-center text-base font-black text-[#081736]">
+                  <span>TOTAL A COBRAR:</span>
+                  <span class="text-xl">${fmt(cartTotal)}</span>
+                </div>
+              </div>
+
+              <!-- MÉTODO DE PAGO Y NOTAS -->
+              <div class="grid grid-cols-2 gap-2 text-xs">
+                <div>
+                  <label class="font-bold text-slate-600 block mb-1">Método de pago</label>
+                  <select onchange="state.paymentMethod=this.value; saveState(); render();"
+                    class="w-full border border-slate-300 rounded-lg px-2.5 py-2 font-semibold">
+                    ${['Efectivo', 'Tarjeta', 'Transferencia'].map(m => `<option ${state.paymentMethod === m ? 'selected' : ''}>${m}</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="font-bold text-slate-600 block mb-1">¿Con cuánto paga?</label>
+                  <input type="number" placeholder="${cartTotal.toFixed(2)}"
+                    value="${state.amountPaid}"
+                    ${state.paymentMethod !== 'Efectivo' ? 'disabled' : ''}
+                    oninput="state.amountPaid=this.value; render();"
+                    class="w-full border border-slate-300 rounded-lg px-2.5 py-2 font-bold" />
+                </div>
+              </div>
+
+              ${state.paymentMethod === 'Efectivo' && cartTotal > 0 ? `
+                <div class="bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2 flex justify-between items-center text-sm font-extrabold text-emerald-800">
+                  <span>Cambio a entregar:</span>
+                  <span>${fmt(changeVal)}</span>
+                </div>
+              ` : ''}
+
+              <input type="text" placeholder="Notas de preparación (ej. sin cebolla, salsa aparte)..."
+                value="${state.orderNote}"
+                oninput="state.orderNote=this.value;"
+                class="w-full border border-slate-300 rounded-lg px-3 py-2 text-xs" />
+
+              <button onclick="confirmOrder()"
+                class="w-full bg-[#081736] hover:bg-[#10295c] text-amber-400 font-black py-3 rounded-xl text-sm shadow-md transition">
+                ✅ COBRAR Y GENERAR TICKET 58MM
+              </button>
+            </div>
+
+            <!-- ÚLTIMO TICKET GENERADO LISTO PARA MP58C6 -->
+            ${state.lastTicket ? `
+              <div class="bg-white p-4 rounded-2xl border-2 border-amber-400 shadow-sm space-y-3">
+                <div class="flex justify-between items-center">
+                  <span class="text-xs font-extrabold text-[#081736] uppercase">Último Ticket #${state.lastTicket.id} (58mm)</span>
+                  <span class="text-[11px] bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full font-bold">Listo para MP58C6</span>
+                </div>
+                <div class="flex justify-center bg-slate-100 p-3 rounded-xl">
+                  <div class="ticket-58mm p-3 shadow border border-slate-300">
+                    <div class="text-center font-bold text-xs">SHOWROOM THE TWINS</div>
+                    <div class="text-center text-[9px]">ESPACIO COLABORATIVO</div>
+                    <div class="border-t border-dashed border-black my-1"></div>
+                    <div>Folio: <b>#${state.lastTicket.id}</b> | ${state.lastTicket.time}</div>
+                    <div>${state.lastTicket.serviceType} (${state.lastTicket.table})</div>
+                    <div class="border-t border-dashed border-black my-1"></div>
+                    ${state.lastTicket.items.map(i => `
+                      <div class="flex justify-between">
+                        <span>${i.qty}x ${i.name.substring(0, 16)}</span>
+                        <span>${fmt(i.price * i.qty)}</span>
+                      </div>
+                    `).join('')}
+                    <div class="border-t border-dashed border-black my-1"></div>
+                    <div class="flex justify-between font-bold text-xs">
+                      <span>TOTAL:</span><span>${fmt(state.lastTicket.totalSale)}</span>
+                    </div>
+                    ${state.lastTicket.paymentMethod === 'Efectivo' ? `
+                      <div class="flex justify-between"><span>Cambio:</span><span>${fmt(state.lastTicket.change)}</span></div>
+                    ` : ''}
+                  </div>
+                </div>
+                <div class="grid grid-cols-3 gap-2 text-xs font-bold">
+                  <button onclick="printBluetoothESCPOS(state.lastTicket)" class="bg-blue-600 text-white py-2 rounded-lg hover:bg-blue-700">
+                    BT Directo
+                  </button>
+                  <button onclick="printRawBT(state.lastTicket)" class="bg-amber-400 text-[#081736] py-2 rounded-lg hover:bg-amber-300">
+                    RawBT Android
+                  </button>
+                  <button onclick="printSystem58mm(state.lastTicket)" class="bg-[#081736] text-white py-2 rounded-lg hover:bg-slate-800">
+                    Imprimir 58mm
+                  </button>
+                </div>
+              </div>
+            ` : ''}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderLiveMonitor() {
+      return `
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <!-- PEDIDOS EN TIEMPO REAL -->
+          <div class="lg:col-span-7 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <div class="flex justify-between items-center">
+              <h2 class="font-extrabold text-[#081736] text-base">Pedidos del Turno en Tiempo Real</h2>
+              <span class="text-xs text-slate-500">${state.orders.length} registros</span>
+            </div>
+            ${state.orders.length === 0 ? `
+              <p class="text-sm text-slate-400 py-8 text-center">Aún no hay pedidos registrados hoy.</p>
+            ` : `
+              <div class="space-y-3 max-h-[520px] overflow-y-auto">
+                ${state.orders.map(ord => `
+                  <div class="p-3.5 rounded-xl border border-slate-200 bg-slate-50 space-y-2">
+                    <div class="flex flex-wrap justify-between items-center gap-2">
+                      <div>
+                        <span class="font-black text-[#081736]">Pedido #${ord.id}</span>
+                        <span class="text-xs text-slate-500 ml-2">${ord.time} • ${ord.serviceType} (${ord.table})</span>
+                      </div>
+                      <span class="text-xs font-bold px-2.5 py-1 rounded-full ${
+                        ord.status === 'Entregado' ? 'bg-emerald-100 text-emerald-800' :
+                        ord.status === 'Cancelado' ? 'bg-rose-100 text-rose-800' :
+                        'bg-amber-100 text-amber-800'
+                      }">${ord.status}</span>
+                    </div>
+                    <div class="text-xs text-slate-700">
+                      ${ord.items.map(i => `${i.qty}x ${i.name}`).join(', ')}
+                    </div>
+                    <div class="flex flex-wrap justify-between items-center gap-2 pt-2 border-t border-slate-200 text-xs">
+                      <div>
+                        Venta: <b>${fmt(ord.totalSale)}</b> | Ganancia: <b class="text-emerald-700">${fmt(ord.profit)}</b> | Reinversión: <b class="text-amber-700">${fmt(ord.reinvest)}</b>
+                      </div>
+                      <div class="flex gap-1.5">
+                        <button onclick="updateOrderStatus(${ord.id}, 'Entregado')" class="px-2.5 py-1 bg-emerald-600 text-white rounded font-bold">Entregar</button>
+                        <button onclick="printSystem58mm(state.orders.find(o=>o.id===${ord.id}))" class="px-2.5 py-1 bg-[#081736] text-amber-400 rounded font-bold">Ticket</button>
+                        <button onclick="updateOrderStatus(${ord.id}, 'Cancelado')" class="px-2.5 py-1 bg-rose-100 text-rose-700 rounded font-bold">Cancelar</button>
+                      </div>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            `}
+          </div>
+
+          <!-- BITÁCORA EN VIVO -->
+          <div class="lg:col-span-5 bg-[#081736] text-white p-4 rounded-2xl shadow-sm space-y-3">
+            <div class="flex items-center justify-between">
+              <h2 class="font-extrabold text-amber-400 text-base">Bitácora de Actividad en Vivo</h2>
+              <span class="text-[11px] text-emerald-400 font-bold">● Sincronizado</span>
+            </div>
+            <div class="space-y-2 max-h-[520px] overflow-y-auto text-xs">
+              ${state.liveLogs.map(log => `
+                <div class="bg-white/10 p-2.5 rounded-lg flex items-start gap-2">
+                  <span class="text-amber-300 font-mono shrink-0">[${log.time}]</span>
+                  <span class="text-slate-100">${log.msg}</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderTables() {
+      return `
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+          <div class="flex justify-between items-center">
+            <h2 class="font-extrabold text-[#081736] text-lg">Control de Mesas, Barra y Servicio Express</h2>
+            <span class="text-xs text-slate-500">Toca "Tomar pedido" para asignar la comanda</span>
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
+            ${state.tables.map(tbl => `
+              <div class="p-4 rounded-2xl border-2 ${
+                tbl.status === 'Libre' ? 'border-emerald-200 bg-emerald-50/40' :
+                tbl.status === 'Ocupada' ? 'border-amber-300 bg-amber-50/50' :
+                'border-rose-300 bg-rose-50/50'
+              } space-y-3">
+                <div class="flex justify-between items-center">
+                  <div>
+                    <span class="text-[11px] font-bold uppercase text-slate-500">${tbl.zone}</span>
+                    <h3 class="text-lg font-black text-slate-900">${tbl.id}</h3>
+                  </div>
+                  <span class="text-xs font-extrabold px-2.5 py-1 rounded-full ${
+                    tbl.status === 'Libre' ? 'bg-emerald-200 text-emerald-900' :
+                    tbl.status === 'Ocupada' ? 'bg-amber-300 text-amber-950' :
+                    'bg-rose-200 text-rose-900'
+                  }">${tbl.status}</span>
+                </div>
+                <div class="text-sm font-bold text-slate-700">Acumulado: ${fmt(tbl.total)}</div>
+                <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+                  <button onclick="selectTableForOrder('${tbl.id}')" class="bg-[#081736] text-amber-400 py-2 rounded-lg">
+                    + Pedido
+                  </button>
+                  <button onclick="toggleTableStatus('${tbl.id}')" class="bg-white border border-slate-300 text-slate-800 py-2 rounded-lg">
+                    Cambiar estado
+                  </button>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        </div>
+      `;
+    }
+
+    function renderInventory() {
+      return `
+        <div class="space-y-5">
+          <!-- AGREGAR NUEVO PLATILLO -->
+          <form onsubmit="addNewProduct(event)" class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm space-y-3">
+            <h2 class="font-extrabold text-[#081736] text-base">Agregar Nuevo Platillo o Bebida</h2>
+            <div class="grid grid-cols-1 sm:grid-cols-6 gap-2.5 text-xs">
+              <input name="prodName" required placeholder="Nombre del platillo" class="sm:col-span-2 border border-slate-300 rounded-lg px-3 py-2" />
+              <input name="prodCategory" placeholder="Categoría (ej. Platillos)" class="border border-slate-300 rounded-lg px-3 py-2" />
+              <input name="prodCost" type="number" step="0.01" required placeholder="Costo compra ($)" class="border border-slate-300 rounded-lg px-3 py-2" />
+              <input name="prodPrice" type="number" step="0.01" required placeholder="Precio venta ($)" class="border border-slate-300 rounded-lg px-3 py-2" />
+              <div class="flex items-center gap-2">
+                <input name="prodStock" type="number" placeholder="Stock" class="w-20 border border-slate-300 rounded-lg px-2 py-2" />
+                <label class="flex items-center gap-1 font-bold text-slate-700">
+                  <input name="prodInfinite" type="checkbox" /> ∞
+                </label>
+              </div>
+            </div>
+            <button type="submit" class="bg-[#081736] text-amber-400 font-bold text-xs px-4 py-2 rounded-lg">
+              + Guardar en Menú
+            </button>
+          </form>
+
+          <!-- TABLA EDITABLE DE COSTOS, PRECIOS Y STOCK -->
+          <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm overflow-x-auto">
+            <h2 class="font-extrabold text-[#081736] text-base mb-3">Inventario, Costos de Compra y Márgenes</h2>
+            <table class="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr class="border-b-2 border-slate-200 text-slate-500 uppercase">
+                  <th class="py-2 px-2">Platillo</th>
+                  <th class="py-2 px-2">Categoría</th>
+                  <th class="py-2 px-2">Costo Compra ($)</th>
+                  <th class="py-2 px-2">Precio Venta ($)</th>
+                  <th class="py-2 px-2">Ganancia / Ud</th>
+                  <th class="py-2 px-2">Reinversión (${state.reinvestPercent}%)</th>
+                  <th class="py-2 px-2">Stock</th>
+                  <th class="py-2 px-2">Infinito (∞)</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                ${state.products.map(p => {
+                  const gain = p.price - p.costPrice;
+                  const reinv = gain > 0 ? gain * (state.reinvestPercent / 100) : 0;
+                  return `
+                    <tr>
+                      <td class="py-2.5 px-2 font-bold text-slate-900">${p.name}</td>
+                      <td class="py-2.5 px-2 text-slate-600">${p.category}</td>
+                      <td class="py-2.5 px-2">
+                        <input type="number" step="0.5" value="${p.costPrice}"
+                          onchange="updateProductField('${p.id}', 'costPrice', this.value)"
+                          class="w-20 border border-slate-300 rounded px-2 py-1 font-semibold" />
+                      </td>
+                      <td class="py-2.5 px-2">
+                        <input type="number" step="0.5" value="${p.price}"
+                          onchange="updateProductField('${p.id}', 'price', this.value)"
+                          class="w-20 border border-amber-400 bg-amber-50 rounded px-2 py-1 font-bold" />
+                      </td>
+                      <td class="py-2.5 px-2 font-extrabold text-emerald-700">${fmt(gain)}</td>
+                      <td class="py-2.5 px-2 font-bold text-amber-700">${fmt(reinv)}</td>
+                      <td class="py-2.5 px-2">
+                        <input type="number" value="${p.stock}" ${p.infinite ? 'disabled' : ''}
+                          onchange="updateProductField('${p.id}', 'stock', this.value)"
+                          class="w-16 border border-slate-300 rounded px-2 py-1 font-bold disabled:bg-slate-100" />
+                      </td>
+                      <td class="py-2.5 px-2">
+                        <input type="checkbox" ${p.infinite ? 'checked' : ''}
+                          onchange="updateProductField('${p.id}', 'infinite', this.checked)"
+                          class="w-4 h-4 accent-[#081736]" />
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderCash(totalSalesDay, totalCostDay, totalProfitDay, totalReinvestDay, totalFreeProfitDay) {
+      const validOrders = state.orders.filter(o => o.status !== 'Cancelado');
+      const cashSales = validOrders.filter(o => o.paymentMethod === 'Efectivo').reduce((s, o) => s + o.totalSale, 0);
+      const cardSales = validOrders.filter(o => o.paymentMethod === 'Tarjeta').reduce((s, o) => s + o.totalSale, 0);
+      const transferSales = validOrders.filter(o => o.paymentMethod === 'Transferencia').reduce((s, o) => s + o.totalSale, 0);
+
+      const expenses = state.cashMovements
+        .filter(m => m.type === 'Gasto / Compra insumo' || m.type === 'Retiro')
+        .reduce((s, m) => s + m.amount, 0);
+      const extraIn = state.cashMovements
+        .filter(m => m.type === 'Ingreso adicional')
+        .reduce((s, m) => s + m.amount, 0);
+      const expectedCash = state.openingFund + cashSales + extraIn - expenses;
+
+      return `
+        <div class="grid grid-cols-1 lg:grid-cols-12 gap-5">
+          <div class="lg:col-span-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <div class="flex justify-between items-center">
+              <div>
+                <h2 class="font-extrabold text-[#081736] text-lg">Corte de Caja y Reinversión</h2>
+                <span class="text-xs font-bold ${state.cashOpen ? 'text-emerald-600' : 'text-rose-600'}">
+                  Estado: ${state.cashOpen ? 'CAJA ABIERTA' : 'CAJA CERRADA'}
+                </span>
+              </div>
+              <button onclick="toggleCashRegister()"
+                class="px-4 py-2 rounded-xl text-xs font-extrabold ${
+                  state.cashOpen ? 'bg-rose-600 text-white' : 'bg-emerald-600 text-white'
+                }">
+                ${state.cashOpen ? 'Cerrar Caja' : '+ Abrir Caja'}
+              </button>
+            </div>
+
+            <div class="space-y-2 text-sm border-t border-b border-slate-100 py-3">
+              <div class="flex justify-between"><span>Fondo inicial en efectivo:</span><b>${fmt(state.openingFund)}</b></div>
+              <div class="flex justify-between text-emerald-700"><span>+ Ventas en Efectivo:</span><b>${fmt(cashSales)}</b></div>
+              <div class="flex justify-between text-slate-600"><span>Ventas Tarjeta / Transferencia:</span><b>${fmt(cardSales + transferSales)}</b></div>
+              <div class="flex justify-between text-blue-700"><span>+ Ingresos adicionales:</span><b>${fmt(extraIn)}</b></div>
+              <div class="flex justify-between text-rose-700"><span>- Gastos / Compras / Retiros:</span><b>${fmt(expenses)}</b></div>
+              <div class="flex justify-between text-base font-black text-[#081736] pt-2 border-t border-slate-200">
+                <span>Efectivo esperado en caja:</span><span>${fmt(expectedCash)}</span>
+              </div>
+            </div>
+
+            <div class="bg-amber-50 border border-amber-300 p-3.5 rounded-xl space-y-1.5 text-xs">
+              <div class="font-extrabold text-amber-900 uppercase">Resumen de Ganancia y Reinversión del Día</div>
+              <div class="flex justify-between"><span>Recuperación de costo de insumos:</span><b>${fmt(totalCostDay)}</b></div>
+              <div class="flex justify-between text-emerald-800"><span>Ganancia neta generada:</span><b>${fmt(totalProfitDay)}</b></div>
+              <div class="flex justify-between text-amber-900 text-sm font-black">
+                <span>Fondo separado para reinvertir (${state.reinvestPercent}%):</span>
+                <span>${fmt(totalReinvestDay)}</span>
+              </div>
+              <div class="flex justify-between text-blue-900 font-bold">
+                <span>Utilidad libre para ti:</span>
+                <span>${fmt(totalFreeProfitDay)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="lg:col-span-6 bg-white p-5 rounded-2xl border border-slate-200 shadow-sm space-y-4">
+            <h2 class="font-extrabold text-[#081736] text-base">Registrar Gasto, Compra de Insumo o Retiro</h2>
+            <form onsubmit="addCashMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+              <select name="movType" class="border border-slate-300 rounded-lg px-2.5 py-2 font-semibold">
+                <option>Gasto / Compra insumo</option>
+                <option>Retiro</option>
+                <option>Ingreso adicional</option>
+              </select>
+              <input name="movConcept" required placeholder="Concepto (ej. gas, carne, hielo)" class="border border-slate-300 rounded-lg px-3 py-2" />
+              <div class="flex gap-2">
+                <input name="movAmount" type="number" step="0.01" required placeholder="$ Monto" class="w-full border border-slate-300 rounded-lg px-2.5 py-2" />
+                <button type="submit" class="bg-[#081736] text-amber-400 font-bold px-3 rounded-lg">Guardar</button>
+              </div>
+            </form>
+
+            <div class="space-y-2 max-h-64 overflow-y-auto text-xs">
+              ${state.cashMovements.length === 0 ? `
+                <p class="text-slate-400 text-center py-6">Sin movimientos adicionales registrados hoy.</p>
+              ` : state.cashMovements.map(m => `
+                <div class="flex justify-between items-center p-2.5 rounded-lg bg-slate-50 border border-slate-200">
+                  <div>
+                    <span class="font-bold text-slate-800">${m.concept}</span>
+                    <span class="text-slate-400 ml-2">${m.time} • ${m.type}</span>
+                  </div>
+                  <span class="font-extrabold ${m.type === 'Ingreso adicional' ? 'text-emerald-700' : 'text-rose-700'}">
+                    ${m.type === 'Ingreso adicional' ? '+' : '-'}${fmt(m.amount)}
+                  </span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    function renderPrinterTab() {
+      const sampleOrder = state.lastTicket || {
+        id: 1001,
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        serviceType: 'Comer aquí',
+        table: 'Barra 1',
+        paymentMethod: 'Efectivo',
+        items: [
+          { name: 'Hamburguesas (Arrachera y Sirloin)', qty: 1, price: 90 },
+          { name: 'Orden de Papas', qty: 1, price: 50 }
+        ],
+        totalSale: 140,
+        paid: 200,
+        change: 60,
+        note: 'Ticket de prueba MP58C6'
+      };
+
+      return `
+        <div class="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm max-w-2xl mx-auto space-y-4">
+          <div class="flex items-center justify-between">
+            <div>
+              <h2 class="font-extrabold text-[#081736] text-lg">Configuración Impresora Térmica MP58C6 (58mm)</h2>
+              <p class="text-xs text-slate-500">Estado actual: <b>${state.printerStatus}</b></p>
+            </div>
+            <button onclick="connectBluetoothMP58C6()" class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl">
+              🔗 Vincular Bluetooth MP58C6
+            </button>
+          </div>
+
+          <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div class="font-extrabold text-[#081736]">1. Bluetooth Directo (Chrome/Edge)</div>
+              <p class="text-slate-600">Conecta directo desde navegador HTTPS (como GitHub Pages) usando comandos ESC/POS.</p>
+              <button onclick="printBluetoothESCPOS(${JSON.stringify(sampleOrder).replace(/"/g, '&quot;')})"
+                class="w-full bg-blue-600 text-white font-bold py-2 rounded-lg">Probar BT Directo</button>
+            </div>
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div class="font-extrabold text-[#081736]">2. Celular Android (App RawBT)</div>
+              <p class="text-slate-600">Ideal en teléfono Android teniendo instalada la app gratuita RawBT vinculada a la MP58C6.</p>
+              <button onclick="printRawBT(${JSON.stringify(sampleOrder).replace(/"/g, '&quot;')})"
+                class="w-full bg-amber-400 text-[#081736] font-bold py-2 rounded-lg">Probar RawBT</button>
+            </div>
+            <div class="p-3.5 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div class="font-extrabold text-[#081736]">3. Windows / Tablet (Driver 58mm)</div>
+              <p class="text-slate-600">Usa el diálogo de impresión del sistema ajustado a papel térmico de 58mm sin márgenes.</p>
+              <button onclick="printSystem58mm(${JSON.stringify(sampleOrder).replace(/"/g, '&quot;')})"
+                class="w-full bg-[#081736] text-white font-bold py-2 rounded-lg">Imprimir Prueba 58mm</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    render();
+  </script>
+</body>
+</html>
