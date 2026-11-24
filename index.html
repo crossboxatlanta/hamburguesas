@@ -33,7 +33,7 @@
   <div id="thermal-receipt-58mm" class="hidden print:block"></div>
 
   <script>
-    const STORAGE_KEY = "the_twins_pos_v13";
+    const STORAGE_KEY = "the_twins_pos_v14";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
     const BURGER_OPTS = ["Con todo", "Sin lechuga", "Sin jitomate", "Sin cebolla", "Sin queso"];
@@ -62,6 +62,7 @@
       cart: [],
       lastTicket: null,
       lastKitchenTicket: null,
+      inspectedOrderId: null,
       printerStatus: "Desconectada — Lista para vincular por Bluetooth",
       printerDeviceName: "",
       homeTitle: "SHOWROOM The Twins",
@@ -77,7 +78,7 @@
       products: [
         { id: "P1", kind: "standard", name: "Banderillas", category: "Antojitos", costPrice: 28, price: 65, stock: 30, infinite: false, desc: "Crujientes con aderezos" },
         { id: "P2", kind: "standard", name: "Orden de Papas", category: "Snacks", costPrice: 20, price: 50, stock: 40, infinite: false, desc: "Papas a la francesa doradas" },
-        { id: "P3", kind: "ramen", name: "Ramen", category: "Especiales", costPrice: 38, price: 85, stock: 20, infinite: false, desc: "Precio y costo ajustables según preparación" },
+        { id: "P3", kind: "ramen", name: "Ramen", category: "Especiales", costPrice: 38, price: 85, stock: 20, infinite: false, desc: "Precio ajustable al momento" },
         { id: "P4", name: "Marquesitas", kind: "marquesita", category: "Postres", costPrice: 12, price: 30, stock: 35, infinite: false, desc: "Elige: Queso, Nutella o Queso con nutella" },
         { id: "P5", name: "Hamburguesas", kind: "burger", category: "Platillos", costPrice: 45, price: 90, stock: 25, infinite: false, desc: "Arrachera o Sirloin • Con todo o sin ingredientes" },
         { id: "P6", name: "Orden de Alitas", kind: "wings", category: "Platillos", costPrice: 46, price: 90, stock: 25, infinite: false, desc: "Sabores: BBQ, Lemon Pepper, Cajun, Mango Habanero" },
@@ -110,7 +111,7 @@
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           action: "Inicio",
           product: "Catálogo inicial",
-          detail: "Menú, Ramen variable y Aderezo Extra ($15) cargados",
+          detail: "Menú y Aderezo Extra ($15) cargados",
           user: "Sistema"
         }
       ],
@@ -459,14 +460,6 @@
       render();
     }
 
-    function updateCartRamenCost(idx, newCost) {
-      const it = state.cart[idx];
-      if (!it) return;
-      it.costPrice = Math.max(0, parseFloat(newCost) || 0);
-      saveState();
-      render();
-    }
-
     function changeQty(idx, delta) {
       const it = state.cart[idx];
       if (!it) return;
@@ -491,7 +484,7 @@
       render();
     }
 
-    function checkoutOrder() {
+    async function checkoutOrder() {
       if (!state.cashOpen) {
         alert("La caja está cerrada.");
         return;
@@ -531,6 +524,7 @@
         id: folio,
         orderName: cleanOrderName,
         time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        deliveredAt: null,
         items: JSON.parse(JSON.stringify(state.cart)),
         serviceType: state.serviceType,
         paymentMethod: state.paymentMethod,
@@ -546,33 +540,48 @@
       state.orders.unshift(order);
       state.lastTicket = order;
       state.lastKitchenTicket = order;
+      state.inspectedOrderId = order.id;
       state.cart = [];
       state.orderName = "";
       state.amountPaid = "";
       state.orderNote = "";
-      addLiveLog(`${cleanOrderName} (#${folio}) enviada a cocina por ${fmt(totalSale)}`);
+      addLiveLog(`${cleanOrderName} (#${folio}) cobrada por ${fmt(totalSale)}`);
       saveState();
       render();
+
+      // Al cobrar, imprimir automáticamente el ticket en la impresora Bluetooth si está vinculada/conectada
+      if (btChar || btDevice) {
+        await sendTextBT(getCustomerReceiptText(order), `Ticket automático ${order.orderName} (#${order.id})`, true);
+      }
     }
 
     function markOrderDelivered(orderId) {
       const ord = state.orders.find(o => o.id === orderId);
+      const nowTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
       if (ord) {
         ord.status = "Entregado";
+        ord.deliveredAt = nowTime;
       }
       if (state.lastTicket && state.lastTicket.id === orderId) {
         state.lastTicket.status = "Entregado";
+        state.lastTicket.deliveredAt = nowTime;
       }
       if (state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
         state.lastKitchenTicket.status = "Entregado";
+        state.lastKitchenTicket.deliveredAt = nowTime;
       }
-      if (state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
-        state.lastKitchenTicket.status = "Entregado";
-      }
-      if (!ord && state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
-        state.lastKitchenTicket.status = "Entregado";
-      }
+      state.inspectedOrderId = orderId;
       addLiveLog(`Orden #${orderId} marcada como ENTREGADO`);
+      saveState();
+      render();
+    }
+
+    function inspectOrder(orderId) {
+      state.inspectedOrderId = orderId;
+      const found = state.orders.find(o => o.id === orderId);
+      if (found) {
+        state.lastKitchenTicket = found;
+      }
       saveState();
       render();
     }
@@ -799,12 +808,13 @@
       return ch.writeValue(chunk);
     }
 
-    async function sendTextBT(txt, label) {
+    async function sendTextBT(txt, label, silentOnAuto) {
       try {
         if (!btChar && btDevice) {
           btChar = await resolveWritableCharacteristic(btDevice);
         }
         if (!btChar) {
+          if (silentOnAuto) return;
           await connectBT();
           if (!btChar) return;
         }
@@ -822,7 +832,9 @@
         btChar = null;
         state.printerStatus = "Error al enviar por BT — Reconecta o usa RawBT / 58mm";
         render();
-        alert("No se pudo enviar por Bluetooth directo. Si usas Android, prueba el botón RawBT; si usas PC/Tablet, usa Imprimir 58mm.");
+        if (!silentOnAuto) {
+          alert("No se pudo enviar por Bluetooth directo. Si usas Android, prueba el botón RawBT; si usas PC/Tablet, usa Imprimir 58mm.");
+        }
       }
     }
 
@@ -831,9 +843,9 @@
       if (isKitchen) {
         state.lastKitchenTicket = order;
         saveState();
-        sendTextBT(getKitchenReceiptText(order), `Comanda cocina ${order.orderName} (#${order.id})`);
+        sendTextBT(getKitchenReceiptText(order), `Comanda cocina ${order.orderName} (#${order.id})`, false);
       } else {
-        sendTextBT(getCustomerReceiptText(order), `Ticket cliente ${order.orderName} (#${order.id})`);
+        sendTextBT(getCustomerReceiptText(order), `Ticket cliente ${order.orderName} (#${order.id})`, false);
       }
     }
 
@@ -863,7 +875,8 @@
         paid: 200,
         change: 5,
         note: "Bien doradas",
-        status: "En cocina"
+        status: "En cocina",
+        deliveredAt: null
       };
     }
 
@@ -1027,6 +1040,7 @@
       const found = state.orders.find(x => x.id === id);
       if (found) {
         state.lastKitchenTicket = found;
+        state.inspectedOrderId = found.id;
         state.activeTab = "kitchen";
         saveState();
         render();
@@ -1125,6 +1139,8 @@
 
       const modalProd = state.optionModalProdId ? state.products.find(x => x.id === state.optionModalProdId) : null;
       const kitchenTarget = state.lastKitchenTicket || state.lastTicket || (state.orders.length > 0 ? state.orders[0] : null);
+      const isKitchenDelivered = kitchenTarget && kitchenTarget.status === "Entregado";
+      const inspectedOrder = state.orders.find(o => o.id === state.inspectedOrderId) || kitchenTarget || null;
 
       const app = document.getElementById("app");
       app.innerHTML = `
@@ -1296,10 +1312,12 @@
               <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-3">
                 <div class="flex flex-wrap gap-2 justify-between items-center">
                   <input type="text" placeholder="Buscar producto..." value="${esc(state.searchQuery)}" oninput="state.searchQuery=this.value;render();" class="flex-1 min-w-[180px] border rounded-xl px-3 py-2 text-xs" />
-                  <button type="button" onclick="state.showQuickMenuEditorOnHome=!state.showQuickMenuEditorOnHome;saveState();render();"
-                    class="px-3 py-1.5 rounded-lg text-xs font-extrabold border border-[#081736] ${state.showQuickMenuEditorOnHome ? "bg-[#081736] text-amber-400" : "bg-white text-[#081736]"}">
-                    ✏️ Editar Menú
-                  </button>
+                  ${isAdmin ? `
+                    <button type="button" onclick="state.showQuickMenuEditorOnHome=!state.showQuickMenuEditorOnHome;saveState();render();"
+                      class="px-3 py-1.5 rounded-lg text-xs font-extrabold border border-[#081736] ${state.showQuickMenuEditorOnHome ? "bg-[#081736] text-amber-400" : "bg-white text-[#081736]"}">
+                      ✏️ Editar Menú
+                    </button>
+                  ` : ""}
                 </div>
 
                 <div class="flex flex-wrap gap-1.5">
@@ -1334,7 +1352,7 @@
                           <span class="bg-amber-400 text-[#081736] font-black px-2.5 py-1 rounded-lg text-sm">${fmt(p.price)}</span>
                         </div>
                         <div class="mt-2 pt-1.5 border-t flex justify-between text-[11px]">
-                          <span>${p.kind === "ramen" ? "Precio variable al agregar" : (p.kind === "standard" ? "Toca para agregar" : "Toca para elegir")}</span>
+                          <span>${p.kind === "ramen" ? "Precio ajustable al agregar" : (p.kind === "standard" ? "Toca para agregar" : "Toca para elegir")}</span>
                           ${state.showHomeStock ? `<span>${p.infinite ? "Stock: ∞" : `Quedan: ${Math.max(0, totalStock - getCartReservedQty(p.id, null))}`}</span>` : `<span></span>`}
                         </div>
                       </div>
@@ -1380,10 +1398,7 @@
                           ${it.kind === "ramen" ? `
                             <div class="flex flex-wrap items-center gap-2 bg-amber-50/70 p-2 rounded-lg border border-amber-200 text-[11px]">
                               <label class="font-bold text-slate-700">Precio Ramen $:
-                                <input type="number" step="0.5" value="${it.price}" onchange="updateCartRamenPrice(${idx}, this.value)" class="w-16 border rounded px-1.5 py-0.5 font-extrabold bg-white ml-1" />
-                              </label>
-                              <label class="font-bold text-slate-700">Costo $:
-                                <input type="number" step="0.5" value="${it.costPrice}" onchange="updateCartRamenCost(${idx}, this.value)" class="w-16 border rounded px-1.5 py-0.5 font-bold bg-white ml-1" />
+                                <input type="number" step="0.5" value="${it.price}" onchange="updateCartRamenPrice(${idx}, this.value)" class="w-20 border rounded px-2 py-0.5 font-extrabold bg-white ml-1" />
                               </label>
                             </div>
                           ` : ""}
@@ -1406,7 +1421,7 @@
                   </div>
                   ${state.paymentMethod === "Efectivo" && cartTotal > 0 ? `<div class="text-xs font-extrabold text-emerald-700">Cambio: ${fmt(changeNum)}</div>` : ""}
                   <input type="text" placeholder="Notas para cocina (ej. bien dorada, sin picante)..." value="${esc(state.orderNote)}" oninput="state.orderNote=this.value;" class="w-full border rounded-lg px-3 py-2 text-xs" />
-                  <button onclick="checkoutOrder()" class="w-full bg-[#081736] text-amber-400 font-black py-2.5 rounded-xl text-xs">COBRAR Y ENVIAR A COCINA</button>
+                  <button onclick="checkoutOrder()" class="w-full bg-[#081736] text-amber-400 font-black py-2.5 rounded-xl text-xs">COBRAR E IMPRIMIR TICKET BT</button>
                 </div>
 
                 ${state.lastTicket ? `
@@ -1417,11 +1432,10 @@
                     </div>
                     <div class="text-[11px] text-slate-500">Bluetooth: <b>${esc(state.printerStatus)}</b></div>
                     <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                      <button onclick="printBT(state.lastTicket, true)" class="bg-blue-600 text-white py-2 rounded-lg">🔵 BT Comanda</button>
-                      <button onclick="printBT(state.lastTicket, false)" class="bg-indigo-700 text-white py-2 rounded-lg">🔵 BT Ticket</button>
+                      <button onclick="printBT(state.lastTicket, false)" class="bg-blue-600 text-white py-2 rounded-lg">🔵 BT Ticket</button>
+                      <button onclick="printBT(state.lastTicket, true)" class="bg-indigo-700 text-white py-2 rounded-lg">🔵 BT Comanda</button>
                     </div>
-                    <div class="grid grid-cols-3 gap-2 text-xs font-bold">
-                      <button onclick="printKitchen58System(state.lastTicket)" class="bg-emerald-600 text-white py-2 rounded-lg">Comanda 58mm</button>
+                    <div class="grid grid-cols-2 gap-2 text-xs font-bold">
                       <button onclick="printCustomer58System(state.lastTicket)" class="bg-[#081736] text-amber-400 py-2 rounded-lg">Ticket 58mm</button>
                       <button onclick="markOrderDelivered(state.lastTicket.id)" class="bg-teal-600 text-white py-2 rounded-lg">✓ Entregado</button>
                     </div>
@@ -1430,7 +1444,7 @@
               </div>
             </div>
 
-            ${state.showQuickMenuEditorOnHome ? `
+            ${isAdmin && state.showQuickMenuEditorOnHome ? `
               <div class="bg-white p-4 rounded-2xl border-2 border-[#081736] space-y-3">
                 <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2">
                   <div>
@@ -1494,69 +1508,123 @@
           ` : ""}
 
           ${state.activeTab === "kitchen" ? `
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <div class="lg:col-span-6 bg-white p-5 rounded-2xl border-2 border-[#081736] space-y-3">
-                <div class="flex justify-between items-center border-b pb-2">
+            <div class="space-y-5 max-w-4xl mx-auto">
+              <div class="bg-white rounded-2xl border-2 border-[#081736] shadow-sm overflow-hidden transition-all ${isKitchenDelivered ? "p-3.5 bg-slate-50/90" : "p-6"}">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
                   <div>
                     <div class="text-[10px] font-bold uppercase text-amber-600">Preparación y Entrega</div>
-                    <h2 class="font-black text-[#081736] text-base">Comanda de Cocina</h2>
+                    <h2 class="font-black text-[#081736] ${isKitchenDelivered ? "text-sm" : "text-lg"}">Comanda de Cocina</h2>
                   </div>
-                  ${kitchenTarget ? `
-                    <span class="text-xs font-extrabold px-2.5 py-1 rounded-full ${kitchenTarget.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
-                      ${esc(kitchenTarget.status || "En cocina")}
-                    </span>
-                  ` : ""}
+                  <div class="flex items-center gap-2">
+                    ${kitchenTarget ? `
+                      <span class="text-xs font-black bg-amber-100 text-[#081736] px-3 py-1 rounded-lg">${esc(kitchenTarget.orderName)}</span>
+                      <span class="text-xs font-extrabold px-2.5 py-1 rounded-full ${isKitchenDelivered ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
+                        ${esc(kitchenTarget.status || "En cocina")}
+                      </span>
+                    ` : ""}
+                  </div>
                 </div>
 
                 ${!kitchenTarget ? `<p class="text-xs text-slate-400 py-8 text-center">Cobra una orden para generar su comanda de cocina.</p>` : `
-                  <div class="bg-slate-50 p-4 rounded-xl border space-y-2 text-xs">
-                    <div class="flex justify-between font-bold text-slate-700">
-                      <span>Orden: <b class="text-[#081736]">${esc(kitchenTarget.orderName)}</b></span>
-                      <span>Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
+                  ${isKitchenDelivered ? `
+                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 rounded-xl px-3.5 py-2 text-xs">
+                      <div>
+                        <span class="font-black text-[#081736]">${esc(kitchenTarget.orderName)}</span>
+                        <span class="text-slate-500 ml-1">• Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
+                        ${kitchenTarget.deliveredAt ? `<span class="text-emerald-700 font-bold ml-2">(Entregado ${kitchenTarget.deliveredAt})</span>` : ""}
+                      </div>
+                      <button type="button" onclick="inspectOrder(${kitchenTarget.id})" class="bg-[#081736] text-amber-400 font-bold px-3 py-1 rounded-lg text-[11px]">Ver Detalle</button>
                     </div>
-                    <div class="text-slate-600">Servicio: <b>${esc(kitchenTarget.serviceType)}</b></div>
-                    <div class="divide-y divide-slate-200 pt-2">
-                      ${kitchenTarget.items.map(i => `
-                        <div class="py-2">
-                          <div class="font-black text-sm text-slate-900">• ${i.qty}x ${esc(i.displayName)}</div>
-                          ${i.detail ? `<div class="text-xs font-bold text-amber-800 ml-3">→ ${esc(i.detail)}</div>` : ""}
-                        </div>
-                      `).join("")}
+                  ` : `
+                    <div class="mt-4 bg-slate-50 p-4 rounded-xl border space-y-2.5 text-sm">
+                      <div class="flex flex-wrap justify-between gap-2 font-bold text-slate-700 text-xs">
+                        <span>Orden: <b class="text-[#081736] text-sm">${esc(kitchenTarget.orderName)}</b></span>
+                        <span>Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
+                      </div>
+                      <div class="text-xs text-slate-600">Servicio: <b>${esc(kitchenTarget.serviceType)}</b></div>
+                      <div class="divide-y divide-slate-200 pt-2">
+                        ${kitchenTarget.items.map(i => `
+                          <div class="py-2.5">
+                            <div class="font-black text-sm text-slate-900">• ${i.qty}x ${esc(i.displayName)}</div>
+                            ${i.detail ? `<div class="text-xs font-bold text-amber-800 ml-3 mt-0.5">→ ${esc(i.detail)}</div>` : ""}
+                          </div>
+                        `).join("")}
+                      </div>
+                      ${kitchenTarget.note ? `<div class="p-2.5 rounded-lg bg-amber-100 text-amber-950 font-bold text-xs">Nota: ${esc(kitchenTarget.note)}</div>` : ""}
                     </div>
-                    ${kitchenTarget.note ? `<div class="p-2 rounded bg-amber-100 text-amber-950 font-bold">Nota: ${esc(kitchenTarget.note)}</div>` : ""}
-                  </div>
+                  `}
 
-                  <div class="grid grid-cols-3 gap-2 text-xs font-bold">
-                    <button onclick="printKitchen58System(kitchenTarget)" class="bg-[#081736] text-amber-400 py-2.5 rounded-lg">Imprimir Comanda 58mm</button>
-                    <button onclick="printBT(kitchenTarget, true)" class="bg-blue-600 text-white py-2.5 rounded-lg">BT Directo Cocina</button>
-                    <button onclick="printRaw(kitchenTarget, true)" class="bg-amber-400 text-[#081736] py-2.5 rounded-lg">RawBT Cocina</button>
+                  <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs font-bold">
+                    <button type="button" onclick="printKitchen58System(kitchenTarget)" class="bg-[#081736] text-amber-400 py-2.5 px-3 rounded-xl">Imprimir Comanda 58mm</button>
+                    <button type="button" onclick="printBT(kitchenTarget, true)" class="bg-blue-600 text-white py-2.5 px-3 rounded-xl">BT Directo Cocina</button>
+                    <button type="button" onclick="printRaw(kitchenTarget, true)" class="bg-amber-400 text-[#081736] py-2.5 px-3 rounded-xl">RawBT Cocina</button>
+                    <button type="button" onclick="markOrderDelivered(kitchenTarget.id)" class="py-2.5 px-3 rounded-xl font-black ${isKitchenDelivered ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-emerald-600 hover:bg-emerald-700 text-white"}">
+                      ${isKitchenDelivered ? "✓ Entregado" : "✓ Marcar Entregado"}
+                    </button>
                   </div>
-
-                  <button onclick="markOrderDelivered(kitchenTarget.id)" class="w-full py-2.5 rounded-xl text-xs font-black ${kitchenTarget.status === "Entregado" ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-emerald-600 hover:bg-emerald-700 text-white"}">
-                    ${kitchenTarget.status === "Entregado" ? "✓ Entregado" : "✓ Marcar como Entregado"}
-                  </button>
                 `}
               </div>
 
-              <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-2.5">
-                <h2 class="font-black text-[#081736] text-base">Órdenes para Cocina</h2>
-                ${state.orders.length === 0 ? `<p class="text-xs text-slate-400 py-6">Aún no hay órdenes registradas.</p>` :
-                  state.orders.map(o => `
-                    <div class="p-3 rounded-xl border bg-slate-50 text-xs space-y-1.5">
-                      <div class="flex justify-between items-center gap-2">
-                        <span class="font-black text-[#081736]">${esc(o.orderName)} (#${o.id})</span>
-                        <span class="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full ${o.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">${esc(o.status)}</span>
+              <div class="bg-white p-5 rounded-2xl border space-y-3">
+                <div class="flex flex-wrap justify-between items-center gap-2">
+                  <div>
+                    <h3 class="font-black text-[#081736] text-sm sm:text-base">Historial de Pedidos (Activos y Entregados)</h3>
+                    <p class="text-[11px] text-slate-500">Consulta cualquier pedido entregado si un cliente pregunta o dice que le faltó algo.</p>
+                  </div>
+                </div>
+
+                ${state.orders.length === 0 ? `<p class="text-xs text-slate-400 py-4">Aún no hay pedidos registrados.</p>` : `
+                  <div class="space-y-2">
+                    ${state.orders.map(o => {
+                      const done = o.status === "Entregado";
+                      return `
+                        <div class="rounded-xl border transition-all ${done ? "p-2.5 bg-slate-50/80 border-slate-200" : "p-3.5 bg-white border-amber-300"}">
+                          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
+                            <div class="flex flex-wrap items-center gap-2">
+                              <span class="font-black text-[#081736]">${esc(o.orderName)}</span>
+                              <span class="text-slate-400">#${o.id} • ${o.time}</span>
+                              <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${done ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
+                                ${esc(o.status)}${o.deliveredAt ? ` (${o.deliveredAt})` : ""}
+                              </span>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-1.5">
+                              <button type="button" onclick="inspectOrder(${o.id})" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">Consultar Pedido</button>
+                              <button type="button" onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded-lg font-bold text-[11px]">Abrir Comanda</button>
+                              ${!done ? `
+                                <button type="button" onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">✓ Marcar Entregado</button>
+                              ` : ""}
+                            </div>
+                          </div>
+                          ${!done ? `
+                            <div class="mt-1.5 text-xs text-slate-700 font-semibold">
+                              ${o.items.map(i => `${i.qty}x ${esc(i.displayName)}${i.detail ? ` [${esc(i.detail)}]` : ""}`).join(" • ")}
+                            </div>
+                          ` : ""}
+                        </div>
+                      `;
+                    }).join("")}
+                  </div>
+                `}
+
+                ${inspectedOrder ? `
+                  <div class="mt-3 p-4 rounded-xl bg-amber-50/60 border border-amber-300 text-xs space-y-2">
+                    <div class="flex flex-wrap justify-between items-center gap-2 border-b border-amber-200 pb-2">
+                      <div>
+                        <span class="font-black text-[#081736] text-sm">Detalle del Pedido: ${esc(inspectedOrder.orderName)} (#${inspectedOrder.id})</span>
+                        <span class="text-slate-500 ml-2">Hora: ${inspectedOrder.time} • Pago: ${esc(inspectedOrder.paymentMethod)} • Total: <b>${fmt(inspectedOrder.totalSale)}</b></span>
                       </div>
-                      <div class="text-slate-700 font-semibold">
-                        ${o.items.map(i => `${i.qty}x ${esc(i.displayName)}${i.detail ? ` [${esc(i.detail)}]` : ""}`).join(" • ")}
-                      </div>
-                      <div class="pt-1 flex flex-wrap justify-end gap-1.5">
-                        <button onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">✓ Marcar como Entregado</button>
-                        <button onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-3 py-1 rounded-lg font-bold">Ver Comanda</button>
-                        <button onclick="printBT(state.orders.find(function(x){return x.id===${o.id};}), true)" class="bg-blue-600 text-white px-3 py-1 rounded-lg font-bold">BT Cocina</button>
-                      </div>
+                      <span class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${inspectedOrder.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
+                        ${esc(inspectedOrder.status)}${inspectedOrder.deliveredAt ? ` • Entregado ${inspectedOrder.deliveredAt}` : ""}
+                      </span>
                     </div>
-                  `).join("")}
+                    <div class="space-y-1">
+                      ${inspectedOrder.items.map(i => `
+                        <div class="font-bold text-slate-800">• ${i.qty}x ${esc(i.displayName)} ${i.detail ? `<span class="text-amber-900 font-semibold">(${esc(i.detail)})</span>` : ""} — <span>${fmt(i.price * i.qty)}</span></div>
+                      `).join("")}
+                    </div>
+                    ${inspectedOrder.note ? `<div class="text-amber-950 font-bold">Nota: ${esc(inspectedOrder.note)}</div>` : ""}
+                  </div>
+                ` : ""}
               </div>
             </div>
           ` : ""}
