@@ -6,8 +6,8 @@
   <title>SHOWROOM The Twins — Punto de Venta</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap');
-    body { font-family: 'Inter', sans-serif; }
+    @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800;900&display=swap");
+    body { font-family: "Inter", sans-serif; }
     @media print {
       @page { size: 58mm auto; margin: 0; }
       body * { visibility: hidden !important; }
@@ -21,7 +21,7 @@
         margin: 0 !important;
         background: #fff !important;
         color: #000 !important;
-        font-family: 'Courier New', Courier, monospace !important;
+        font-family: "Courier New", Courier, monospace !important;
         font-size: 11px !important;
         line-height: 1.25 !important;
       }
@@ -33,62 +33,62 @@
   <div id="thermal-receipt-58mm" class="hidden print:block"></div>
 
   <script>
-    const STORAGE_KEY = 'the_twins_pos_v4';
+    const STORAGE_KEY = "the_twins_pos_v6";
 
     const DEFAULT_STATE = {
-      role: 'seller',
-      adminPassword: 'twins2026',
+      role: "seller",
+      adminPassword: "twins2026",
       showAuthModal: false,
       showChangePassModal: false,
-      authError: '',
+      authError: "",
       pendingTab: null,
       reinvestPercent: 50,
       cashOpen: true,
       openingFund: 500,
       cashMovements: [],
-      activeTab: 'pos',
-      selectedCategory: 'Todos',
-      searchQuery: '',
-      serviceType: 'Comer aquí',
-      selectedTable: 'Barra 1',
-      paymentMethod: 'Efectivo',
-      amountPaid: '',
-      orderNote: '',
+      activeTab: "pos",
+      selectedCategory: "Todos",
+      searchQuery: "",
+      serviceType: "Comer aquí",
+      selectedTable: "Barra 1",
+      paymentMethod: "Efectivo",
+      amountPaid: "",
+      orderNote: "",
       cart: [],
       lastTicket: null,
-      printerStatus: 'Lista para MP58C6',
+      printerStatus: "Lista para MP58C6",
       products: [
-        { id: 'P1', name: 'Banderillas', category: 'Antojitos', costPrice: 28, price: 65, stock: 30, infinite: false, desc: 'Crujientes con aderezos' },
-        { id: 'P2', name: 'Orden de Papas', category: 'Snacks', costPrice: 20, price: 50, stock: 40, infinite: false, desc: 'Papas a la francesa doradas' },
-        { id: 'P3', name: 'Ramen', category: 'Especiales', costPrice: 38, price: 85, stock: 20, infinite: false, desc: 'Caldo preparado con huevo y cebollín' },
-        { id: 'P4', name: 'Marquesitas', category: 'Postres', costPrice: 12, price: 30, stock: 35, infinite: false, desc: 'Crujiente rellena tradicional' },
-        { id: 'P5', name: 'Hamburguesas (Arrachera y Sirloin)', category: 'Platillos', costPrice: 45, price: 90, stock: 25, infinite: false, desc: 'Carne de arrachera y sirloin' },
-        { id: 'P6', name: 'Orden de Alitas', category: 'Platillos', costPrice: 46, price: 90, stock: 25, infinite: false, desc: 'Incluye papas a la francesa' },
-        { id: 'P7', name: 'Refresco / Bebida', category: 'Bebidas', costPrice: 11, price: 25, stock: 0, infinite: true, desc: 'Bebida fría' },
-        { id: 'P8', name: 'Extra Queso / Tocino', category: 'Extras', costPrice: 8, price: 20, stock: 0, infinite: true, desc: 'Complemento adicional' }
+        { id: "P1", name: "Banderillas", category: "Antojitos", costPrice: 28, price: 65, stock: 30, infinite: false, desc: "Crujientes con aderezos" },
+        { id: "P2", name: "Orden de Papas", category: "Snacks", costPrice: 20, price: 50, stock: 40, infinite: false, desc: "Papas a la francesa doradas" },
+        { id: "P3", name: "Ramen", category: "Especiales", costPrice: 38, price: 85, stock: 20, infinite: false, desc: "Caldo preparado con huevo y cebollín" },
+        { id: "P4", name: "Marquesitas", category: "Postres", costPrice: 12, price: 30, stock: 35, infinite: false, desc: "Crujiente rellena tradicional" },
+        { id: "P5", name: "Hamburguesas (Arrachera y Sirloin)", category: "Platillos", costPrice: 45, price: 90, stock: 25, infinite: false, desc: "Carne de arrachera y sirloin" },
+        { id: "P6", name: "Orden de Alitas", category: "Platillos", costPrice: 46, price: 90, stock: 25, infinite: false, desc: "Incluye papas a la francesa" },
+        { id: "P7", name: "Refresco / Bebida", category: "Bebidas", costPrice: 11, price: 25, stock: 0, infinite: true, desc: "Bebida fría" },
+        { id: "P8", name: "Extra Queso / Tocino", category: "Extras", costPrice: 8, price: 20, stock: 0, infinite: true, desc: "Complemento adicional" }
       ],
       tables: [
-        { id: 'Barra 1', zone: 'Barra', status: 'Libre', total: 0 },
-        { id: 'Barra 2', zone: 'Barra', status: 'Libre', total: 0 },
-        { id: 'Mesa 1', zone: 'Showroom', status: 'Libre', total: 0 },
-        { id: 'Mesa 2', zone: 'Showroom', status: 'Libre', total: 0 },
-        { id: 'Para Llevar', zone: 'Express', status: 'Libre', total: 0 }
+        { id: "Barra 1", zone: "Barra", status: "Libre", total: 0 },
+        { id: "Barra 2", zone: "Barra", status: "Libre", total: 0 },
+        { id: "Mesa 1", zone: "Showroom", status: "Libre", total: 0 },
+        { id: "Mesa 2", zone: "Showroom", status: "Libre", total: 0 },
+        { id: "Para Llevar", zone: "Express", status: "Libre", total: 0 }
       ],
       orders: [],
       inventoryLogs: [
         {
-          date: new Date().toLocaleDateString('es-MX'),
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          action: 'Inicio',
-          product: 'Catálogo inicial',
-          detail: 'Productos cargados en el sistema',
-          user: 'Sistema'
+          date: new Date().toLocaleDateString("es-MX"),
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          action: "Inicio",
+          product: "Catálogo inicial",
+          detail: "Productos cargados en el sistema",
+          user: "Sistema"
         }
       ],
       liveLogs: [
         {
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-          msg: 'SHOWROOM The Twins POS listo'
+          time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+          msg: "SHOWROOM The Twins POS listo"
         }
       ]
     };
@@ -104,7 +104,7 @@
           return Object.assign({}, DEFAULT_STATE, parsed, {
             showAuthModal: false,
             showChangePassModal: false,
-            authError: '',
+            authError: "",
             pendingTab: null,
             cart: parsed.cart || [],
             cashMovements: parsed.cashMovements || [],
@@ -121,3 +121,801 @@
         const copy = Object.assign({}, state, {
           showAuthModal: false,
           showChangePassModal: false,
+          authError: "",
+          pendingTab: null
+        });
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(copy));
+      } catch (err) {}
+    }
+
+    function fmt(n) {
+      return "$" + Number(n || 0).toFixed(2);
+    }
+
+    function esc(str) {
+      return String(str || "")
+        .replace(/&/g, "&amp;")
+        .replace(/"/g, "&quot;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;");
+    }
+
+    function addLiveLog(msg) {
+      const time = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+      state.liveLogs.unshift({ time, msg });
+      if (state.liveLogs.length > 50) state.liveLogs.pop();
+    }
+
+    function addInvLog(action, product, detail) {
+      const now = new Date();
+      state.inventoryLogs.unshift({
+        date: now.toLocaleDateString("es-MX"),
+        time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }),
+        action,
+        product,
+        detail,
+        user: state.role === "admin" ? "Administrador" : "Vendedor"
+      });
+      if (state.inventoryLogs.length > 120) state.inventoryLogs.pop();
+    }
+
+    function getFinancials() {
+      const valid = state.orders.filter(o => o.status !== "Cancelado");
+      const sales = valid.reduce((s, o) => s + o.totalSale, 0);
+      const cost = valid.reduce((s, o) => s + o.totalCost, 0);
+      const grossProfit = sales - cost;
+      const reinvest = grossProfit > 0 ? grossProfit * (state.reinvestPercent / 100) : 0;
+      const payroll = state.cashMovements
+        .filter(m => m.category === "Sueldos / Nómina")
+        .reduce((s, m) => s + m.amount, 0);
+      const expenses = state.cashMovements
+        .filter(m => m.category === "Gasto Operativo / Insumos" || m.category === "Servicios / Renta")
+        .reduce((s, m) => s + m.amount, 0);
+      const extraIn = state.cashMovements
+        .filter(m => m.category === "Ingreso Adicional")
+        .reduce((s, m) => s + m.amount, 0);
+      const netFinal = grossProfit + extraIn - reinvest - payroll - expenses;
+      return {
+        count: valid.length,
+        sales,
+        cost,
+        grossProfit,
+        reinvest,
+        payroll,
+        expenses,
+        extraIn,
+        netFinal
+      };
+    }
+
+    function openAuth(tabKey) {
+      state.showAuthModal = true;
+      state.authError = "";
+      state.pendingTab = tabKey || null;
+      render();
+      setTimeout(() => {
+        const el = document.getElementById("passInput");
+        if (el) el.focus();
+      }, 40);
+    }
+
+    function closeAuth() {
+      state.showAuthModal = false;
+      state.authError = "";
+      state.pendingTab = null;
+      render();
+    }
+
+    function handleAuthSubmit(e) {
+      e.preventDefault();
+      const el = document.getElementById("passInput");
+      const val = el ? el.value : "";
+      if (val === state.adminPassword) {
+        state.role = "admin";
+        state.showAuthModal = false;
+        state.authError = "";
+        if (state.pendingTab) {
+          state.activeTab = state.pendingTab;
+          state.pendingTab = null;
+        }
+        addLiveLog("Modo Administrador activado");
+        saveState();
+        render();
+      } else {
+        state.authError = "Contraseña incorrecta.";
+        render();
+      }
+    }
+
+    function setSellerMode() {
+      state.role = "seller";
+      if (state.activeTab === "inventory" || state.activeTab === "cash") {
+        state.activeTab = "pos";
+      }
+      addLiveLog("Modo Vendedor activado");
+      saveState();
+      render();
+    }
+
+    function openChangePass() {
+      if (state.role !== "admin") return;
+      state.showChangePassModal = true;
+      state.authError = "";
+      render();
+    }
+
+    function closeChangePass() {
+      state.showChangePassModal = false;
+      state.authError = "";
+      render();
+    }
+
+    function handleChangePass(e) {
+      e.preventDefault();
+      const f = e.target;
+      const cur = f.curPass.value;
+      const nw = f.newPass.value.trim();
+      const cf = f.confPass.value.trim();
+      if (cur !== state.adminPassword) {
+        state.authError = "La contraseña actual no es correcta.";
+        render();
+        return;
+      }
+      if (nw.length < 4) {
+        state.authError = "Usa al menos 4 caracteres.";
+        render();
+        return;
+      }
+      if (nw !== cf) {
+        state.authError = "Las contraseñas no coinciden.";
+        render();
+        return;
+      }
+      state.adminPassword = nw;
+      state.showChangePassModal = false;
+      state.authError = "";
+      addLiveLog("Contraseña de Administrador actualizada");
+      saveState();
+      render();
+      alert("Contraseña actualizada.");
+    }
+
+    function goTab(tabKey) {
+      if ((tabKey === "inventory" || tabKey === "cash") && state.role !== "admin") {
+        openAuth(tabKey);
+        return;
+      }
+      state.activeTab = tabKey;
+      saveState();
+      render();
+    }
+
+    function addCartItem(prodId) {
+      const p = state.products.find(x => x.id === prodId);
+      if (!p) return;
+      if (!p.infinite && p.stock <= 0) {
+        alert("Producto agotado.");
+        return;
+      }
+      const found = state.cart.find(x => x.id === prodId);
+      if (found) {
+        if (!p.infinite && found.qty + 1 > p.stock) {
+          alert("No hay más stock disponible.");
+          return;
+        }
+        found.qty += 1;
+      } else {
+        state.cart.push({
+          id: p.id,
+          name: p.name,
+          costPrice: Number(p.costPrice),
+          price: Number(p.price),
+          qty: 1
+        });
+      }
+      saveState();
+      render();
+    }
+
+    function changeQty(idx, delta) {
+      const it = state.cart[idx];
+      if (!it) return;
+      const p = state.products.find(x => x.id === it.id);
+      const next = it.qty + delta;
+      if (next <= 0) {
+        state.cart.splice(idx, 1);
+      } else {
+        if (p && !p.infinite && next > p.stock) {
+          alert("Stock máximo alcanzado.");
+          return;
+        }
+        it.qty = next;
+      }
+      saveState();
+      render();
+    }
+
+    function checkoutOrder() {
+      if (!state.cashOpen) {
+        alert("La caja está cerrada.");
+        return;
+      }
+      if (state.cart.length === 0) return;
+      const totalSale = state.cart.reduce((s, i) => s + i.price * i.qty, 0);
+      const totalCost = state.cart.reduce((s, i) => s + i.costPrice * i.qty, 0);
+      const paid = state.paymentMethod === "Efectivo" ? (parseFloat(state.amountPaid) || totalSale) : totalSale;
+      if (state.paymentMethod === "Efectivo" && paid < totalSale) {
+        alert("El monto recibido es menor al total.");
+        return;
+      }
+      const change = state.paymentMethod === "Efectivo" ? Math.max(0, paid - totalSale) : 0;
+      const profit = totalSale - totalCost;
+      const reinvest = profit > 0 ? profit * (state.reinvestPercent / 100) : 0;
+      const folio = 1000 + state.orders.length + 1;
+
+      state.cart.forEach(item => {
+        const p = state.products.find(x => x.id === item.id);
+        if (p && !p.infinite) {
+          const prev = p.stock;
+          p.stock = Math.max(0, p.stock - item.qty);
+          addInvLog("Salida por Venta", p.name, `Venta #${folio}: -${item.qty} (${prev} -> ${p.stock})`);
+        }
+      });
+
+      const order = {
+        id: folio,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        items: JSON.parse(JSON.stringify(state.cart)),
+        serviceType: state.serviceType,
+        table: state.selectedTable,
+        paymentMethod: state.paymentMethod,
+        totalSale,
+        totalCost,
+        profit,
+        reinvest,
+        paid,
+        change,
+        note: state.orderNote,
+        status: "Preparando"
+      };
+
+      state.orders.unshift(order);
+      state.lastTicket = order;
+      state.cart = [];
+      state.amountPaid = "";
+      state.orderNote = "";
+      addLiveLog(`Venta #${folio} por ${fmt(totalSale)}`);
+      saveState();
+      render();
+    }
+
+    function getReceiptText(order) {
+      const sep = "--------------------------------\n";
+      let t = "      SHOWROOM THE TWINS\n";
+      t += "  ESPACIO COLABORATIVO EMPREND.\n";
+      t += sep;
+      t += `Folio: #${order.id}  ${order.time}\n`;
+      t += `Servicio: ${order.serviceType} (${order.table})\n`;
+      t += `Pago: ${order.paymentMethod}\n`;
+      t += sep;
+      order.items.forEach(i => {
+        t += `${i.qty}x ${i.name.slice(0, 18)}\n`;
+        t += `   ${fmt(i.price)} c/u    ${fmt(i.price * i.qty)}\n`;
+      });
+      if (order.note) t += `Nota: ${order.note}\n`;
+      t += sep;
+      t += `TOTAL:            ${fmt(order.totalSale)}\n`;
+      if (order.paymentMethod === "Efectivo") {
+        t += `RECIBIDO:         ${fmt(order.paid)}\n`;
+        t += `CAMBIO:           ${fmt(order.change)}\n`;
+      }
+      t += sep;
+      t += "  GRACIAS POR TU COMPRA!\n\n\n";
+      return t;
+    }
+
+    function print58System(order) {
+      if (!order) return;
+      const el = document.getElementById("thermal-receipt-58mm");
+      const rows = order.items.map(i =>
+        `<div style="margin-bottom:3px;"><div><b>${i.qty}x ${esc(i.name)}</b></div><div style="display:flex;justify-content:space-between;"><span>${fmt(i.price)} c/u</span><b>${fmt(i.price * i.qty)}</b></div></div>`
+      ).join("");
+      const cashRow = order.paymentMethod === "Efectivo"
+        ? `<div style="display:flex;justify-content:space-between;"><span>Cambio:</span><b>${fmt(order.change)}</b></div>`
+        : "";
+      el.innerHTML =
+        `<div style="text-align:center;font-weight:bold;font-size:13px;">SHOWROOM THE TWINS</div>` +
+        `<div style="text-align:center;font-size:9px;">ESPACIO COLABORATIVO PARA EMPRENDEDORES</div>` +
+        `<div style="border-top:1px dashed #000;margin:4px 0;"></div>` +
+        `<div>Folio: <b>#${order.id}</b> | ${order.time}</div>` +
+        `<div>${esc(order.serviceType)} - ${esc(order.table)}</div>` +
+        `<div style="border-top:1px dashed #000;margin:4px 0;"></div>` +
+        rows +
+        `<div style="border-top:1px dashed #000;margin:4px 0;"></div>` +
+        `<div style="display:flex;justify-content:space-between;font-size:13px;font-weight:bold;"><span>TOTAL:</span><span>${fmt(order.totalSale)}</span></div>` +
+        cashRow +
+        `<div style="height:10mm;"></div>`;
+      addLiveLog(`Ticket #${order.id} enviado a impresión 58mm`);
+      saveState();
+      window.print();
+    }
+
+    async function connectBT() {
+      if (!navigator.bluetooth) {
+        alert("Usa Chrome/Edge en HTTPS o usa RawBT / Impresión 58mm.");
+        return;
+      }
+      try {
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: ["000018f0-0000-1000-8000-00805f9b34fb", "49535343-fe7d-4ae5-8fa9-9fafd205e455"]
+        });
+        const server = await device.gatt.connect();
+        const services = await server.getPrimaryServices();
+        for (const s of services) {
+          const chars = await s.getCharacteristics();
+          for (const c of chars) {
+            if (c.properties.write || c.properties.writeWithoutResponse) {
+              btChar = c;
+              break;
+            }
+          }
+          if (btChar) break;
+        }
+        state.printerStatus = "Conectada: " + (device.name || "MP58C6");
+        addLiveLog("Impresora MP58C6 conectada");
+        saveState();
+        render();
+      } catch (err) {
+        alert("No se pudo conectar por Bluetooth.");
+      }
+    }
+
+    async function printBT(order) {
+      if (!order) return;
+      if (!btChar) {
+        await connectBT();
+        if (!btChar) return;
+      }
+      const enc = new TextEncoder();
+      const bytes = enc.encode(getReceiptText(order));
+      for (let i = 0; i < bytes.length; i += 100) {
+        await btChar.writeValue(bytes.slice(i, i + 100));
+      }
+      addLiveLog(`Ticket #${order.id} impreso en MP58C6`);
+      saveState();
+    }
+
+    function printRaw(order) {
+      if (!order) return;
+      const txt = getReceiptText(order);
+      window.location.href = "rawbt:base64," + btoa(unescape(encodeURIComponent(txt)));
+    }
+
+    function getSample() {
+      return state.lastTicket || {
+        id: 1001,
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        serviceType: "Comer aquí",
+        table: "Barra 1",
+        paymentMethod: "Efectivo",
+        items: [{ name: "Hamburguesas", qty: 1, price: 90 }, { name: "Orden de Papas", qty: 1, price: 50 }],
+        totalSale: 140,
+        paid: 200,
+        change: 60,
+        note: "Prueba MP58C6"
+      };
+    }
+
+    function editProd(id, field, val) {
+      if (state.role !== "admin") return;
+      const p = state.products.find(x => x.id === id);
+      if (!p) return;
+      if (field === "name") {
+        const clean = String(val).trim();
+        if (!clean || clean === p.name) return;
+        const old = p.name;
+        p.name = clean;
+        addInvLog("Cambio de Nombre", clean, `"${old}" -> "${clean}"`);
+      } else if (field === "category") {
+        p.category = String(val).trim() || p.category;
+        addInvLog("Cambio de Categoría", p.name, `Categoría: ${p.category}`);
+      } else if (field === "costPrice") {
+        const oldC = p.costPrice;
+        p.costPrice = Math.max(0, parseFloat(val) || 0);
+        addInvLog("Cambio de Costo", p.name, `${fmt(oldC)} -> ${fmt(p.costPrice)}`);
+      } else if (field === "price") {
+        const oldP = p.price;
+        p.price = Math.max(0, parseFloat(val) || 0);
+        addInvLog("Cambio de Precio", p.name, `${fmt(oldP)} -> ${fmt(p.price)}`);
+      } else if (field === "stock") {
+        const oldS = p.stock;
+        p.stock = Math.max(0, parseInt(val) || 0);
+        addInvLog("Ajuste de Stock", p.name, `${oldS} -> ${p.stock} uds`);
+      } else if (field === "infinite") {
+        p.infinite = Boolean(val);
+        addInvLog("Stock Infinito", p.name, p.infinite ? "Activado (∞)" : "Desactivado");
+      }
+      saveState();
+      render();
+    }
+
+    function addStockQuick(id, qty) {
+      if (state.role !== "admin") return;
+      const p = state.products.find(x => x.id === id);
+      if (!p || p.infinite) return;
+      const old = p.stock;
+      p.stock += qty;
+      addInvLog("Entrada Rápida", p.name, `+${qty} uds (${old} -> ${p.stock})`);
+      saveState();
+      render();
+    }
+
+    function createProd(e) {
+      e.preventDefault();
+      if (state.role !== "admin") return;
+      const f = e.target;
+      const name = f.pName.value.trim();
+      if (!name) return;
+      const category = f.pCat.value.trim() || "Antojitos";
+      const costPrice = parseFloat(f.pCost.value) || 0;
+      const price = parseFloat(f.pPrice.value) || 0;
+      const stock = parseInt(f.pStock.value) || 0;
+      const infinite = f.pInf.checked;
+      state.products.push({
+        id: "P-" + Date.now(),
+        name,
+        category,
+        costPrice,
+        price,
+        stock,
+        infinite,
+        desc: "Producto del menú"
+      });
+      addInvLog("Nuevo Producto", name, `Venta ${fmt(price)} / Costo ${fmt(costPrice)}`);
+      f.reset();
+      saveState();
+      render();
+    }
+
+    function createMovement(e) {
+      e.preventDefault();
+      if (state.role !== "admin") return;
+      const f = e.target;
+      const category = f.mCat.value;
+      const concept = f.mConcept.value.trim();
+      const amount = parseFloat(f.mAmount.value) || 0;
+      const fromDrawer = f.mDrawer.checked;
+      if (!concept || amount <= 0) return;
+      state.cashMovements.unshift({
+        id: Date.now(),
+        date: new Date().toLocaleDateString("es-MX"),
+        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        category,
+        concept,
+        amount,
+        fromDrawer
+      });
+      addLiveLog(`${category}: ${concept} (${fmt(amount)})`);
+      f.reset();
+      f.mDrawer.checked = true;
+      saveState();
+      render();
+    }
+
+    function reprintOrderById(id) {
+      const found = state.orders.find(x => x.id === id);
+      if (found) print58System(found);
+    }
+
+    function render() {
+      const isAdmin = state.role === "admin";
+      const fin = getFinancials();
+      const cartTotal = state.cart.reduce((s, i) => s + i.price * i.qty, 0);
+      const cartCost = state.cart.reduce((s, i) => s + i.costPrice * i.qty, 0);
+      const cartProfit = cartTotal - cartCost;
+      const cartReinvest = cartProfit > 0 ? cartProfit * (state.reinvestPercent / 100) : 0;
+      const paidNum = parseFloat(state.amountPaid) || 0;
+      const changeNum = state.paymentMethod === "Efectivo" && paidNum >= cartTotal ? paidNum - cartTotal : 0;
+
+      const cats = ["Todos", ...new Set(state.products.map(p => p.category))];
+      const items = state.products.filter(p => {
+        const okCat = state.selectedCategory === "Todos" || p.category === state.selectedCategory;
+        const okQ = p.name.toLowerCase().includes(state.searchQuery.toLowerCase());
+        return okCat && okQ;
+      });
+
+      const app = document.getElementById("app");
+      app.innerHTML = `
+        ${state.showAuthModal ? `
+          <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <form onsubmit="handleAuthSubmit(event)" class="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3 border-2 border-amber-400">
+              <h3 class="font-black text-[#081736] text-base">Acceso Administrador</h3>
+              <input id="passInput" type="password" required placeholder="Contraseña" class="w-full border rounded-xl px-3 py-2 text-sm font-bold" />
+              <p class="text-[11px] text-slate-400">Inicial: <b>twins2026</b></p>
+              ${state.authError ? `<div class="text-xs text-rose-600 font-bold">${esc(state.authError)}</div>` : ""}
+              <div class="flex gap-2">
+                <button type="button" onclick="closeAuth()" class="flex-1 bg-slate-200 py-2 rounded-xl text-xs font-bold">Cancelar</button>
+                <button type="submit" class="flex-1 bg-[#081736] text-amber-400 py-2 rounded-xl text-xs font-black">Entrar</button>
+              </div>
+            </form>
+          </div>
+        ` : ""}
+
+        ${state.showChangePassModal && isAdmin ? `
+          <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
+            <form onsubmit="handleChangePass(event)" class="bg-white rounded-2xl max-w-sm w-full p-5 space-y-2.5 border-2 border-amber-400 text-xs">
+              <h3 class="font-black text-[#081736] text-base">Cambiar Contraseña Admin</h3>
+              <input name="curPass" type="password" required placeholder="Contraseña actual" class="w-full border rounded-xl px-3 py-2" />
+              <input name="newPass" type="password" required minlength="4" placeholder="Nueva contraseña" class="w-full border rounded-xl px-3 py-2" />
+              <input name="confPass" type="password" required minlength="4" placeholder="Confirmar contraseña" class="w-full border rounded-xl px-3 py-2" />
+              ${state.authError ? `<div class="text-rose-600 font-bold">${esc(state.authError)}</div>` : ""}
+              <div class="flex gap-2 pt-1">
+                <button type="button" onclick="closeChangePass()" class="flex-1 bg-slate-200 py-2 rounded-xl font-bold">Cancelar</button>
+                <button type="submit" class="flex-1 bg-[#081736] text-amber-400 py-2 rounded-xl font-black">Guardar</button>
+              </div>
+            </form>
+          </div>
+        ` : ""}
+
+        <header class="bg-[#081736] text-white border-b-4 border-amber-400 sticky top-0 z-30">
+          <div class="max-w-7xl mx-auto px-4 py-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-3">
+              <span class="bg-amber-400 text-[#081736] font-black px-3 py-1 rounded-xl text-base">THE TWINS</span>
+              <div>
+                <div class="font-extrabold text-sm sm:text-base">SHOWROOM The Twins</div>
+                <div class="text-[10px] text-amber-300 font-bold">ESPACIO COLABORATIVO PARA EMPRENDEDORES</div>
+              </div>
+            </div>
+            <div class="flex flex-wrap items-center gap-2 text-xs">
+              <button onclick="setSellerMode()" class="px-2.5 py-1 rounded-lg font-bold ${!isAdmin ? "bg-emerald-400 text-slate-950" : "bg-white/10 text-white"}">Vendedor</button>
+              <button onclick="openAuth(null)" class="px-2.5 py-1 rounded-lg font-bold ${isAdmin ? "bg-amber-400 text-[#081736]" : "bg-white/10 text-white"}">Admin</button>
+              ${isAdmin ? `
+                <span class="bg-white/10 px-2 py-1 rounded-lg">Reinversión: <input type="number" min="0" max="100" value="${state.reinvestPercent}" onchange="state.reinvestPercent=Math.min(100,Math.max(0,Number(this.value)||0));saveState();render();" class="w-11 bg-[#0d2352] text-amber-300 font-bold text-center rounded" />%</span>
+                <button onclick="openChangePass()" class="bg-white/10 text-amber-200 px-2.5 py-1 rounded-lg font-bold">🔑 Clave</button>
+              ` : ""}
+            </div>
+          </div>
+          <nav class="bg-[#0d2352] px-4 py-2 overflow-x-auto">
+            <div class="max-w-7xl mx-auto flex gap-2 text-xs font-bold">
+              <button onclick="goTab('pos')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "pos" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🍔 Pedido</button>
+              <button onclick="goTab('live')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "live" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📡 En Vivo</button>
+              <button onclick="goTab('inventory')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "inventory" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📦 Inventario ${!isAdmin ? "🔒" : ""}</button>
+              <button onclick="goTab('cash')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cash" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">💰 Gastos y Ganancias ${!isAdmin ? "🔒" : ""}</button>
+              <button onclick="goTab('printer')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "printer" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🖨️ MP58C6</button>
+            </div>
+          </nav>
+        </header>
+
+        ${isAdmin ? `
+          <section class="max-w-7xl mx-auto px-4 pt-4 grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+            <div class="bg-white p-3 rounded-xl border"><div class="text-slate-500">Ventas</div><div class="text-lg font-black">${fmt(fin.sales)}</div></div>
+            <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-200"><div class="text-emerald-800">Ganancia Ventas</div><div class="text-lg font-black text-emerald-700">${fmt(fin.grossProfit)}</div></div>
+            <div class="bg-amber-50 p-3 rounded-xl border border-amber-300"><div class="text-amber-800">- Reinversión (${state.reinvestPercent}%)</div><div class="text-lg font-black text-amber-700">${fmt(fin.reinvest)}</div></div>
+            <div class="bg-purple-50 p-3 rounded-xl border border-purple-200"><div class="text-purple-800">- Sueldos y Gastos</div><div class="text-lg font-black text-purple-800">${fmt(fin.payroll + fin.expenses)}</div></div>
+            <div class="bg-[#081736] text-white p-3 rounded-xl border-2 border-amber-400 col-span-2 sm:col-span-1"><div class="text-amber-300 font-bold">Ganancia Real Final</div><div class="text-lg font-black text-emerald-400">${fmt(fin.netFinal)}</div></div>
+          </section>
+        ` : ""}
+
+        <main class="max-w-7xl mx-auto px-4 py-4">
+          ${state.activeTab === "pos" ? `
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-3">
+                <div class="flex flex-wrap gap-2">
+                  <input type="text" placeholder="Buscar producto..." value="${esc(state.searchQuery)}" oninput="state.searchQuery=this.value;render();" class="flex-1 border rounded-xl px-3 py-2 text-xs" />
+                  ${cats.map(c => `
+                    <button data-cat="${esc(c)}" onclick="state.selectedCategory=this.dataset.cat;render();" class="px-3 py-1.5 rounded-lg text-xs font-bold ${state.selectedCategory === c ? "bg-[#081736] text-amber-400" : "bg-slate-100"}">${esc(c)}</button>
+                  `).join("")}
+                </div>
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  ${items.map(p => {
+                    const agotado = !p.infinite && p.stock <= 0;
+                    return `
+                      <div data-pid="${p.id}" onclick="${agotado ? "" : "addCartItem(this.dataset.pid)"}" class="p-3 rounded-xl border ${agotado ? "opacity-50 bg-slate-100" : "hover:border-amber-400 cursor-pointer bg-white"}">
+                        <div class="flex justify-between items-start gap-2">
+                          <div>
+                            <div class="text-[10px] font-bold text-slate-500">${esc(p.category)}</div>
+                            <div class="font-extrabold text-sm">${esc(p.name)}</div>
+                            <div class="text-[11px] text-slate-500">${esc(p.desc)}</div>
+                          </div>
+                          <span class="bg-amber-400 text-[#081736] font-black px-2.5 py-1 rounded-lg text-sm">${fmt(p.price)}</span>
+                        </div>
+                        <div class="mt-2 pt-1.5 border-t flex justify-between text-[11px]">
+                          ${isAdmin ? `<span>Costo: <b>${fmt(p.costPrice)}</b></span>` : `<span>Toca para agregar</span>`}
+                          <span>${p.infinite ? "Stock: ∞" : `Stock: ${p.stock}`}</span>
+                        </div>
+                      </div>
+                    `;
+                  }).join("")}
+                </div>
+              </div>
+
+              <div class="lg:col-span-5 space-y-4">
+                <div class="bg-white p-4 rounded-2xl border space-y-3">
+                  <h2 class="font-black text-[#081736] text-base">Comanda</h2>
+                  <div class="grid grid-cols-2 gap-2 text-xs">
+                    <select onchange="state.serviceType=this.value;saveState();" class="border rounded-lg px-2 py-2">
+                      <option ${state.serviceType === "Comer aquí" ? "selected" : ""}>Comer aquí</option>
+                      <option ${state.serviceType === "Para llevar" ? "selected" : ""}>Para llevar</option>
+                    </select>
+                    <select onchange="state.selectedTable=this.value;saveState();" class="border rounded-lg px-2 py-2">
+                      ${state.tables.map(t => `<option ${state.selectedTable === t.id ? "selected" : ""}>${esc(t.id)}</option>`).join("")}
+                    </select>
+                  </div>
+                  <div class="divide-y max-h-48 overflow-y-auto text-xs">
+                    ${state.cart.length === 0 ? `<div class="py-6 text-center text-slate-400">Sin productos en la comanda.</div>` :
+                      state.cart.map((it, idx) => `
+                        <div class="py-2 flex items-center justify-between gap-2">
+                          <div class="flex-1 font-bold">${esc(it.name)}</div>
+                          <div class="flex items-center gap-1">
+                            <button onclick="changeQty(${idx},-1)" class="w-6 h-6 bg-slate-200 rounded font-black">-</button>
+                            <span class="w-5 text-center font-bold">${it.qty}</span>
+                            <button onclick="changeQty(${idx},1)" class="w-6 h-6 bg-[#081736] text-amber-400 rounded font-black">+</button>
+                          </div>
+                          <div class="font-extrabold">${fmt(it.price * it.qty)}</div>
+                        </div>
+                      `).join("")}
+                  </div>
+                  <div class="bg-slate-50 p-3 rounded-xl border text-xs space-y-1">
+                    ${isAdmin ? `
+                      <div class="flex justify-between"><span>Costo insumos:</span><b>${fmt(cartCost)}</b></div>
+                      <div class="flex justify-between text-emerald-700 font-bold"><span>Ganancia venta:</span><span>${fmt(cartProfit)}</span></div>
+                      <div class="flex justify-between text-amber-800 font-bold"><span>Reinversión (${state.reinvestPercent}%):</span><span>${fmt(cartReinvest)}</span></div>
+                    ` : ""}
+                    <div class="flex justify-between text-base font-black pt-1 border-t"><span>TOTAL:</span><span>${fmt(cartTotal)}</span></div>
+                  </div>
+                  <div class="grid grid-cols-2 gap-2 text-xs">
+                    <select onchange="state.paymentMethod=this.value;saveState();render();" class="border rounded-lg px-2 py-2">
+                      <option ${state.paymentMethod === "Efectivo" ? "selected" : ""}>Efectivo</option>
+                      <option ${state.paymentMethod === "Tarjeta" ? "selected" : ""}>Tarjeta</option>
+                      <option ${state.paymentMethod === "Transferencia" ? "selected" : ""}>Transferencia</option>
+                    </select>
+                    <input type="number" placeholder="Paga con $" value="${esc(state.amountPaid)}" oninput="state.amountPaid=this.value;render();" class="border rounded-lg px-2 py-2 font-bold" />
+                  </div>
+                  ${state.paymentMethod === "Efectivo" && cartTotal > 0 ? `<div class="text-xs font-extrabold text-emerald-700">Cambio: ${fmt(changeNum)}</div>` : ""}
+                  <input type="text" placeholder="Notas..." value="${esc(state.orderNote)}" oninput="state.orderNote=this.value;" class="w-full border rounded-lg px-3 py-2 text-xs" />
+                  <button onclick="checkoutOrder()" class="w-full bg-[#081736] text-amber-400 font-black py-2.5 rounded-xl text-xs">COBRAR Y GENERAR TICKET 58MM</button>
+                </div>
+
+                ${state.lastTicket ? `
+                  <div class="bg-white p-4 rounded-2xl border-2 border-amber-400 space-y-2.5">
+                    <div class="text-xs font-black">Ticket #${state.lastTicket.id} — Total ${fmt(state.lastTicket.totalSale)}</div>
+                    <div class="grid grid-cols-3 gap-2 text-xs font-bold">
+                      <button onclick="printBT(state.lastTicket)" class="bg-blue-600 text-white py-2 rounded-lg">BT Directo</button>
+                      <button onclick="printRaw(state.lastTicket)" class="bg-amber-400 text-[#081736] py-2 rounded-lg">RawBT</button>
+                      <button onclick="print58System(state.lastTicket)" class="bg-[#081736] text-white py-2 rounded-lg">Imprimir 58mm</button>
+                    </div>
+                  </div>
+                ` : ""}
+              </div>
+            </div>
+          ` : ""}
+
+          ${state.activeTab === "live" ? `
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-2.5">
+                <h2 class="font-black text-[#081736] text-base">Pedidos en Tiempo Real</h2>
+                ${state.orders.length === 0 ? `<p class="text-xs text-slate-400 py-6">Sin pedidos todavía.</p>` :
+                  state.orders.map(o => `
+                    <div class="p-3 rounded-xl border bg-slate-50 text-xs flex flex-wrap justify-between items-center gap-2">
+                      <div><b>#${o.id}</b> (${o.time}) • ${esc(o.serviceType)} ${esc(o.table)} • <b>${fmt(o.totalSale)}</b></div>
+                      <button onclick="reprintOrderById(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded font-bold">Ticket</button>
+                    </div>
+                  `).join("")}
+              </div>
+              <div class="lg:col-span-5 bg-[#081736] text-white p-4 rounded-2xl space-y-2 text-xs">
+                <h2 class="font-black text-amber-400 text-base">Bitácora</h2>
+                ${state.liveLogs.map(l => `<div class="bg-white/10 p-2 rounded">[${l.time}] ${esc(l.msg)}</div>`).join("")}
+              </div>
+            </div>
+          ` : ""}
+
+          ${state.activeTab === "inventory" && isAdmin ? `
+            <div class="space-y-4">
+              <form onsubmit="createProd(event)" class="bg-white p-4 rounded-2xl border grid grid-cols-1 sm:grid-cols-6 gap-2 text-xs">
+                <input name="pName" required placeholder="Nombre producto" class="sm:col-span-2 border rounded-lg px-2.5 py-2" />
+                <input name="pCat" placeholder="Categoría" class="border rounded-lg px-2.5 py-2" />
+                <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-2.5 py-2" />
+                <input name="pPrice" type="number" step="0.01" required placeholder="Venta $" class="border rounded-lg px-2.5 py-2" />
+                <div class="flex items-center gap-1.5">
+                  <input name="pStock" type="number" placeholder="Stock" class="w-16 border rounded-lg px-2 py-2" />
+                  <label class="font-bold"><input name="pInf" type="checkbox" /> ∞</label>
+                  <button type="submit" class="bg-[#081736] text-amber-400 font-black px-2.5 py-2 rounded-lg">+</button>
+                </div>
+              </form>
+              <div class="bg-white p-4 rounded-2xl border overflow-x-auto">
+                <table class="w-full text-left text-xs">
+                  <thead><tr class="border-b text-slate-500"><th class="py-2">Nombre</th><th class="py-2">Categoría</th><th class="py-2">Costo</th><th class="py-2">Venta</th><th class="py-2">Stock</th><th class="py-2">∞</th></tr></thead>
+                  <tbody class="divide-y">
+                    ${state.products.map(p => `
+                      <tr data-pid="${p.id}">
+                        <td class="py-2 pr-2"><input type="text" value="${esc(p.name)}" onchange="editProd(this.closest('tr').dataset.pid,'name',this.value)" class="border rounded px-2 py-1 font-bold w-48" /></td>
+                        <td class="py-2 pr-2"><input type="text" value="${esc(p.category)}" onchange="editProd(this.closest('tr').dataset.pid,'category',this.value)" class="border rounded px-2 py-1 w-24" /></td>
+                        <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.costPrice}" onchange="editProd(this.closest('tr').dataset.pid,'costPrice',this.value)" class="border rounded px-2 py-1 w-20" /></td>
+                        <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.price}" onchange="editProd(this.closest('tr').dataset.pid,'price',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
+                        <td class="py-2 pr-2">
+                          <div class="flex items-center gap-1">
+                            <input type="number" value="${p.stock}" ${p.infinite ? "disabled" : ""} onchange="editProd(this.closest('tr').dataset.pid,'stock',this.value)" class="border rounded px-2 py-1 w-14 font-bold" />
+                            <button type="button" onclick="addStockQuick(this.closest('tr').dataset.pid,5)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+5</button>
+                            <button type="button" onclick="addStockQuick(this.closest('tr').dataset.pid,10)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+10</button>
+                          </div>
+                        </td>
+                        <td class="py-2"><input type="checkbox" ${p.infinite ? "checked" : ""} onchange="editProd(this.closest('tr').dataset.pid,'infinite',this.checked)" /></td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
+                </table>
+              </div>
+              <div class="bg-white p-4 rounded-2xl border space-y-2">
+                <h3 class="font-black text-[#081736] text-sm">Registro de Modificaciones de Inventario</h3>
+                <div class="max-h-60 overflow-y-auto divide-y text-xs">
+                  ${state.inventoryLogs.map(l => `
+                    <div class="py-1.5 flex flex-wrap justify-between gap-2">
+                      <span class="text-slate-400">${esc(l.date)} ${esc(l.time)}</span>
+                      <b>${esc(l.action)}</b>
+                      <span>${esc(l.product)}: ${esc(l.detail)}</span>
+                    </div>
+                  `).join("")}
+                </div>
+              </div>
+            </div>
+          ` : ""}
+
+          ${state.activeTab === "cash" && isAdmin ? `
+            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+              <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-2.5 text-xs">
+                <h2 class="font-black text-[#081736] text-base">Ganancia Después de Reinvertir y Pagar Sueldos</h2>
+                <div class="flex justify-between"><span>Ventas Totales:</span><b>${fmt(fin.sales)}</b></div>
+                <div class="flex justify-between"><span>(-) Costo Insumos:</span><b>-${fmt(fin.cost)}</b></div>
+                <div class="flex justify-between text-emerald-700 font-bold"><span>Ganancia de Ventas:</span><span>${fmt(fin.grossProfit)}</span></div>
+                <div class="flex justify-between text-amber-800 font-bold"><span>(-) Reinversión (${state.reinvestPercent}%):</span><span>-${fmt(fin.reinvest)}</span></div>
+                <div class="flex justify-between text-purple-800 font-bold"><span>(-) Sueldos / Nómina:</span><span>-${fmt(fin.payroll)}</span></div>
+                <div class="flex justify-between text-rose-700 font-bold"><span>(-) Otros Gastos:</span><span>-${fmt(fin.expenses)}</span></div>
+                <div class="flex justify-between text-base font-black pt-2 border-t text-[#081736]"><span>GANANCIA REAL FINAL:</span><span>${fmt(fin.netFinal)}</span></div>
+              </div>
+              <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-3 text-xs">
+                <h2 class="font-black text-[#081736] text-base">Registrar Gastos y Sueldos</h2>
+                <form onsubmit="createMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                  <select name="mCat" class="border rounded-lg px-2 py-2 font-bold">
+                    <option>Sueldos / Nómina</option>
+                    <option>Gasto Operativo / Insumos</option>
+                    <option>Servicios / Renta</option>
+                    <option>Ingreso Adicional</option>
+                  </select>
+                  <input name="mConcept" required placeholder="Concepto / Empleado" class="border rounded-lg px-2.5 py-2" />
+                  <div class="flex gap-1.5">
+                    <input name="mAmount" type="number" step="0.01" required placeholder="$" class="w-full border rounded-lg px-2 py-2" />
+                    <button type="submit" class="bg-[#081736] text-amber-400 font-black px-3 rounded-lg">+</button>
+                  </div>
+                  <label class="sm:col-span-3 flex items-center gap-1.5"><input name="mDrawer" type="checkbox" checked /> Afecta caja física</label>
+                </form>
+                <div class="divide-y max-h-48 overflow-y-auto">
+                  ${state.cashMovements.map(m => `
+                    <div class="py-2 flex justify-between"><span><b>${esc(m.category)}</b>: ${esc(m.concept)}</span><span class="font-bold">${fmt(m.amount)}</span></div>
+                  `).join("")}
+                </div>
+              </div>
+            </div>
+          ` : ""}
+
+          ${state.activeTab === "printer" ? `
+            <div class="bg-white p-5 rounded-2xl border max-w-xl mx-auto space-y-4 text-xs">
+              <div class="flex justify-between items-center">
+                <div><h2 class="font-black text-[#081736] text-base">Impresora MP58C6 (58mm)</h2><div class="text-slate-500">${esc(state.printerStatus)}</div></div>
+                <button onclick="connectBT()" class="bg-blue-600 text-white font-bold px-3 py-2 rounded-xl">Vincular BT</button>
+              </div>
+              <div class="grid grid-cols-3 gap-2 font-bold">
+                <button onclick="printBT(getSample())" class="bg-blue-600 text-white py-2.5 rounded-lg">BT Directo</button>
+                <button onclick="printRaw(getSample())" class="bg-amber-400 text-[#081736] py-2.5 rounded-lg">RawBT</button>
+                <button onclick="print58System(getSample())" class="bg-[#081736] text-white py-2.5 rounded-lg">Prueba 58mm</button>
+              </div>
+            </div>
+          ` : ""}
+        </main>
+      `;
+    }
+
+    render();
+  </script>
+</body>
+</html>
