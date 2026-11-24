@@ -33,7 +33,7 @@
   <div id="thermal-receipt-58mm" class="hidden print:block"></div>
 
   <script>
-    const STORAGE_KEY = "the_twins_pos_v9";
+    const STORAGE_KEY = "the_twins_pos_v13";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
     const BURGER_OPTS = ["Con todo", "Sin lechuga", "Sin jitomate", "Sin cebolla", "Sin queso"];
@@ -47,13 +47,13 @@
       showChangePassModal: false,
       authError: "",
       pendingTab: null,
-      reinvestPercent: 50,
       cashOpen: true,
       openingFund: 500,
       cashMovements: [],
       activeTab: "pos",
       selectedCategory: "Todos",
       searchQuery: "",
+      showQuickMenuEditorOnHome: false,
       serviceType: "Comer aquí",
       orderName: "",
       paymentMethod: "Efectivo",
@@ -62,8 +62,8 @@
       cart: [],
       lastTicket: null,
       lastKitchenTicket: null,
-      printerStatus: "Lista para MP58C6",
-      // Ajustes de pantalla principal
+      printerStatus: "Desconectada — Lista para vincular por Bluetooth",
+      printerDeviceName: "",
       homeTitle: "SHOWROOM The Twins",
       homeSubtitle: "ESPACIO COLABORATIVO PARA EMPRENDEDORES",
       showHomeDesc: true,
@@ -77,8 +77,8 @@
       products: [
         { id: "P1", kind: "standard", name: "Banderillas", category: "Antojitos", costPrice: 28, price: 65, stock: 30, infinite: false, desc: "Crujientes con aderezos" },
         { id: "P2", kind: "standard", name: "Orden de Papas", category: "Snacks", costPrice: 20, price: 50, stock: 40, infinite: false, desc: "Papas a la francesa doradas" },
-        { id: "P3", name: "Ramen", category: "Especiales", costPrice: 38, price: 85, stock: 20, infinite: false, desc: "Caldo preparado con huevo y cebollín" },
-        { id: "P4", name: "Marquesitas", category: "Postres", costPrice: 12, price: 30, stock: 35, infinite: false, desc: "Elige: Queso, Nutella o Queso con nutella" },
+        { id: "P3", kind: "ramen", name: "Ramen", category: "Especiales", costPrice: 38, price: 85, stock: 20, infinite: false, desc: "Precio y costo ajustables según preparación" },
+        { id: "P4", name: "Marquesitas", kind: "marquesita", category: "Postres", costPrice: 12, price: 30, stock: 35, infinite: false, desc: "Elige: Queso, Nutella o Queso con nutella" },
         { id: "P5", name: "Hamburguesas", kind: "burger", category: "Platillos", costPrice: 45, price: 90, stock: 25, infinite: false, desc: "Arrachera o Sirloin • Con todo o sin ingredientes" },
         { id: "P6", name: "Orden de Alitas", kind: "wings", category: "Platillos", costPrice: 46, price: 90, stock: 25, infinite: false, desc: "Sabores: BBQ, Lemon Pepper, Cajun, Mango Habanero" },
         { id: "P7", name: "Coca", kind: "coca", category: "Refrescos", costPrice: 11, price: 25, stock: 24, infinite: false, desc: "Refresco de cola frío" },
@@ -110,7 +110,7 @@
           time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
           action: "Inicio",
           product: "Catálogo inicial",
-          detail: "Menú y Aderezo Extra ($15) cargados en el sistema",
+          detail: "Menú, Ramen variable y Aderezo Extra ($15) cargados",
           user: "Sistema"
         }
       ],
@@ -123,6 +123,7 @@
     };
 
     let state = loadState();
+    let btDevice = null;
     let btChar = null;
 
     function loadState() {
@@ -202,7 +203,6 @@
       const sales = valid.reduce((s, o) => s + o.totalSale, 0);
       const cost = valid.reduce((s, o) => s + o.totalCost, 0);
       const grossProfit = sales - cost;
-      const reinvest = grossProfit > 0 ? grossProfit * (state.reinvestPercent / 100) : 0;
       const payroll = state.cashMovements
         .filter(m => m.category === "Sueldos / Nómina")
         .reduce((s, m) => s + m.amount, 0);
@@ -212,13 +212,12 @@
       const extraIn = state.cashMovements
         .filter(m => m.category === "Ingreso Adicional")
         .reduce((s, m) => s + m.amount, 0);
-      const netFinal = grossProfit + extraIn - reinvest - payroll - expenses;
+      const netFinal = grossProfit + extraIn - payroll - expenses;
       return {
         count: valid.length,
         sales,
         cost,
         grossProfit,
-        reinvest,
         payroll,
         expenses,
         extraIn,
@@ -432,12 +431,13 @@
         }
       }
 
-      const found = state.cart.find(x => x.prodId === p.id && x.displayName === displayName && x.detail === detail);
+      const found = state.cart.find(x => x.prodId === p.id && x.displayName === displayName && x.detail === detail && p.kind !== "ramen");
       if (found) {
         found.qty += 1;
       } else {
         state.cart.push({
           prodId: p.id,
+          kind: p.kind || "standard",
           baseName: p.name,
           displayName: displayName,
           detail: detail || "",
@@ -447,6 +447,22 @@
           qty: 1
         });
       }
+      saveState();
+      render();
+    }
+
+    function updateCartRamenPrice(idx, newPrice) {
+      const it = state.cart[idx];
+      if (!it) return;
+      it.price = Math.max(0, parseFloat(newPrice) || 0);
+      saveState();
+      render();
+    }
+
+    function updateCartRamenCost(idx, newCost) {
+      const it = state.cart[idx];
+      if (!it) return;
+      it.costPrice = Math.max(0, parseFloat(newCost) || 0);
       saveState();
       render();
     }
@@ -492,7 +508,6 @@
       }
       const change = state.paymentMethod === "Efectivo" ? Math.max(0, paid - totalSale) : 0;
       const profit = totalSale - totalCost;
-      const reinvest = profit > 0 ? profit * (state.reinvestPercent / 100) : 0;
       const folio = 1000 + state.orders.length + 1;
 
       state.cart.forEach(item => {
@@ -522,7 +537,6 @@
         totalSale,
         totalCost,
         profit,
-        reinvest,
         paid,
         change,
         note: state.orderNote,
@@ -541,14 +555,48 @@
       render();
     }
 
-    // --- IMPRESIÓN DE TICKET CLIENTE Y COMANDA DE COCINA (58MM) ---
+    function markOrderDelivered(orderId) {
+      const ord = state.orders.find(o => o.id === orderId);
+      if (ord) {
+        ord.status = "Entregado";
+      }
+      if (state.lastTicket && state.lastTicket.id === orderId) {
+        state.lastTicket.status = "Entregado";
+      }
+      if (state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
+        state.lastKitchenTicket.status = "Entregado";
+      }
+      if (state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
+        state.lastKitchenTicket.status = "Entregado";
+      }
+      if (!ord && state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
+        state.lastKitchenTicket.status = "Entregado";
+      }
+      addLiveLog(`Orden #${orderId} marcada como ENTREGADO`);
+      saveState();
+      render();
+    }
+
+    // --- PROGRAMACIÓN BLUETOOTH ESC/POS (COMANDA Y TICKET) + RAWBT + 58MM ---
+    function escPosInitAndAlign(alignCenter) {
+      return new Uint8Array([0x1B, 0x40, 0x1B, 0x61, alignCenter ? 0x01 : 0x00]);
+    }
+
+    function escPosBold(on) {
+      return new Uint8Array([0x1B, 0x45, on ? 0x01 : 0x00]);
+    }
+
+    function escPosFeedAndCut() {
+      return new Uint8Array([0x0A, 0x0A, 0x0A, 0x0A, 0x1D, 0x56, 0x42, 0x00]);
+    }
+
     function getCustomerReceiptText(order) {
       const sep = "--------------------------------\n";
-      let t = `      ${state.homeTitle.toUpperCase()}\n`;
-      t += "  ESPACIO COLABORATIVO EMPREND.\n";
+      let t = `${state.homeTitle.toUpperCase()}\n`;
+      t += "ESPACIO COLABORATIVO EMPREND.\n";
       t += sep;
       t += `Orden: ${order.orderName}\n`;
-      t += `Folio: #${order.id}  ${order.time}\n`;
+      t += `Folio: #${order.id}  Hora: ${order.time}\n`;
       t += `Servicio: ${order.serviceType}\n`;
       t += `Pago: ${order.paymentMethod}\n`;
       t += sep;
@@ -565,14 +613,14 @@
         t += `CAMBIO:           ${fmt(order.change)}\n`;
       }
       t += sep;
-      t += "  GRACIAS POR TU COMPRA!\n\n\n";
+      t += "GRACIAS POR TU COMPRA!\n";
       return t;
     }
 
     function getKitchenReceiptText(order) {
       const sep = "================================\n";
       const dash = "--------------------------------\n";
-      let t = `*** COMANDA COCINA - ${state.homeTitle.toUpperCase()} ***\n`;
+      let t = `COMANDA COCINA - ${state.homeTitle.toUpperCase()}\n`;
       t += sep;
       t += `ORDEN: ${order.orderName.toUpperCase()}\n`;
       t += `Folio: #${order.id}  Hora: ${order.time}\n`;
@@ -587,7 +635,7 @@
         t += dash;
         t += `INDICACION: ${order.note}\n`;
       }
-      t += sep + "\n\n";
+      t += sep;
       return t;
     }
 
@@ -649,49 +697,133 @@
       window.print();
     }
 
-    async function connectBT() {
-      if (!navigator.bluetooth) {
-        alert("Usa Chrome/Edge en HTTPS o usa RawBT / Impresión 58mm.");
-        return;
-      }
+    async function resolveWritableCharacteristic(device) {
+      const server = await device.gatt.connect();
+      const commonServices = [
+        "000018f0-0000-1000-8000-00805f9b34fb",
+        "49535343-fe7d-4ae5-8fa9-9fafd205e455",
+        "0000ffe0-0000-1000-8000-00805f9b34fb",
+        "0000ff00-0000-1000-8000-00805f9b34fb",
+        "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
+      ];
+      let services = [];
       try {
-        const device = await navigator.bluetooth.requestDevice({
-          acceptAllDevices: true,
-          optionalServices: ["000018f0-0000-1000-8000-00805f9b34fb", "49535343-fe7d-4ae5-8fa9-9fafd205e455"]
-        });
-        const server = await device.gatt.connect();
-        const services = await server.getPrimaryServices();
-        for (const s of services) {
+        services = await server.getPrimaryServices();
+      } catch (e) {
+        for (const uuid of commonServices) {
+          try {
+            const s = await server.getPrimaryService(uuid);
+            if (s) services.push(s);
+          } catch (_) {}
+        }
+      }
+      for (const s of services) {
+        try {
           const chars = await s.getCharacteristics();
           for (const c of chars) {
             if (c.properties.write || c.properties.writeWithoutResponse) {
-              btChar = c;
-              break;
+              return c;
             }
           }
-          if (btChar) break;
+        } catch (_) {}
+      }
+      return null;
+    }
+
+    async function connectBT() {
+      if (!navigator.bluetooth) {
+        alert("Este navegador no soporta Web Bluetooth directo. Usa Chrome o Edge en Android/Windows, o usa el botón RawBT en Android.");
+        return;
+      }
+      try {
+        state.printerStatus = "Buscando impresora Bluetooth...";
+        render();
+        const device = await navigator.bluetooth.requestDevice({
+          acceptAllDevices: true,
+          optionalServices: [
+            "000018f0-0000-1000-8000-00805f9b34fb",
+            "49535343-fe7d-4ae5-8fa9-9fafd205e455",
+            "0000ffe0-0000-1000-8000-00805f9b34fb",
+            "0000ff00-0000-1000-8000-00805f9b34fb",
+            "e7810a71-73ae-499d-8c15-faa9aef0c3f2"
+          ]
+        });
+        btDevice = device;
+        device.addEventListener("gattserverdisconnected", function() {
+          btChar = null;
+          state.printerStatus = `Desconectada (${state.printerDeviceName || "Bluetooth"}) — Toca Reconectar`;
+          render();
+        });
+        const char = await resolveWritableCharacteristic(device);
+        if (!char) {
+          state.printerStatus = "Vinculada pero sin canal de escritura BLE — Usa RawBT o 58mm";
+          alert("La impresora se emparejó pero su perfil Bluetooth es Classic/SPP. En Android usa el botón RawBT o en PC/Tablet usa Imprimir 58mm.");
+          render();
+          return;
         }
-        state.printerStatus = "Conectada: " + (device.name || "MP58C6");
-        addLiveLog("Impresora MP58C6 conectada");
+        btChar = char;
+        state.printerDeviceName = device.name || "Impresora 58mm";
+        state.printerStatus = `Conectada: ${state.printerDeviceName}`;
+        addLiveLog(`Impresora Bluetooth conectada: ${state.printerDeviceName}`);
         saveState();
         render();
       } catch (err) {
-        alert("No se pudo conectar por Bluetooth.");
+        state.printerStatus = "No conectada — Revisa Bluetooth encendido o usa RawBT / 58mm";
+        render();
       }
     }
 
+    function buildEscPosPayload(plainText) {
+      const encoder = new TextEncoder();
+      const head = escPosInitAndAlign(false);
+      const boldOn = escPosBold(true);
+      const boldOff = escPosBold(false);
+      const bodyBytes = encoder.encode(plainText);
+      const tail = escPosFeedAndCut();
+
+      const totalLen = head.length + boldOn.length + bodyBytes.length + boldOff.length + tail.length;
+      const out = new Uint8Array(totalLen);
+      let offset = 0;
+      out.set(head, offset); offset += head.length;
+      out.set(boldOn, offset); offset += boldOn.length;
+      out.set(bodyBytes, offset); offset += bodyBytes.length;
+      out.set(boldOff, offset); offset += boldOff.length;
+      out.set(tail, offset);
+      return out;
+    }
+
+    function writeChunkSafe(ch, chunk) {
+      if (ch.properties.writeWithoutResponse && typeof ch.writeValueWithoutResponse === "function") {
+        return ch.writeValueWithoutResponse(chunk);
+      }
+      return ch.writeValue(chunk);
+    }
+
     async function sendTextBT(txt, label) {
-      if (!btChar) {
-        await connectBT();
-        if (!btChar) return;
+      try {
+        if (!btChar && btDevice) {
+          btChar = await resolveWritableCharacteristic(btDevice);
+        }
+        if (!btChar) {
+          await connectBT();
+          if (!btChar) return;
+        }
+        const payload = buildEscPosPayload(txt);
+        const chunkSize = 120;
+        for (let i = 0; i < payload.length; i += chunkSize) {
+          const slice = payload.slice(i, i + chunkSize);
+          await writeChunkSafe(btChar, slice);
+          await new Promise(r => setTimeout(r, 25));
+        }
+        addLiveLog(`${label} enviada por Bluetooth`);
+        saveState();
+        render();
+      } catch (err) {
+        btChar = null;
+        state.printerStatus = "Error al enviar por BT — Reconecta o usa RawBT / 58mm";
+        render();
+        alert("No se pudo enviar por Bluetooth directo. Si usas Android, prueba el botón RawBT; si usas PC/Tablet, usa Imprimir 58mm.");
       }
-      const enc = new TextEncoder();
-      const bytes = enc.encode(txt);
-      for (let i = 0; i < bytes.length; i += 100) {
-        await btChar.writeValue(bytes.slice(i, i + 100));
-      }
-      addLiveLog(`${label} enviada por Bluetooth a MP58C6`);
-      saveState();
     }
 
     function printBT(order, isKitchen) {
@@ -699,9 +831,9 @@
       if (isKitchen) {
         state.lastKitchenTicket = order;
         saveState();
-        sendTextBT(getKitchenReceiptText(order), `Comanda cocina #${order.id}`);
+        sendTextBT(getKitchenReceiptText(order), `Comanda cocina ${order.orderName} (#${order.id})`);
       } else {
-        sendTextBT(getReceiptText(order), `Ticket cliente #${order.id}`);
+        sendTextBT(getCustomerReceiptText(order), `Ticket cliente ${order.orderName} (#${order.id})`);
       }
     }
 
@@ -711,7 +843,7 @@
         state.lastKitchenTicket = order;
         saveState();
       }
-      const txt = isKitchen ? getKitchenReceiptText(order) : getReceiptText(order);
+      const txt = isKitchen ? getKitchenReceiptText(order) : getCustomerReceiptText(order);
       window.location.href = "rawbt:base64," + btoa(unescape(encodeURIComponent(txt)));
     }
 
@@ -730,13 +862,34 @@
         totalSale: 195,
         paid: 200,
         change: 5,
-        note: "Bien doradas"
+        note: "Bien doradas",
+        status: "En cocina"
       };
     }
 
-    // --- INVENTARIO Y EDICIÓN RÁPIDA DE PANTALLA PRINCIPAL ---
+    // --- EDICIÓN DE MENÚ Y COSTOS ---
+    function deleteProdFromHome(id) {
+      const p = state.products.find(x => x.id === id);
+      if (!p) return;
+      if (!confirm(`¿Eliminar "${p.name}" del menú y de la pantalla principal?`)) return;
+      state.products = state.products.filter(x => x.id !== id);
+      state.cart = state.cart.filter(it => it.prodId !== id);
+      addInvLog("Producto Eliminado", p.name, "Eliminado desde el menú");
+      addLiveLog(`Producto eliminado: ${p.name}`);
+      saveState();
+      render();
+    }
+
+    function removeCartItem(idx) {
+      if (idx < 0 || idx >= state.cart.length) return;
+      const removed = state.cart[idx];
+      state.cart.splice(idx, 1);
+      addLiveLog(`Quitado de la orden: ${removed.displayName}`);
+      saveState();
+      render();
+    }
+
     function editProd(id, field, val) {
-      if (state.role !== "admin") return;
       const p = state.products.find(x => x.id === id);
       if (!p) return;
       if (field === "name") {
@@ -769,7 +922,6 @@
     }
 
     function editJarritoFlavorStock(flavorName, val) {
-      if (state.role !== "admin") return;
       const p = state.products.find(x => x.kind === "jarrito");
       if (!p || !Array.isArray(p.flavors)) return;
       const fl = p.flavors.find(f => f.name === flavorName);
@@ -782,7 +934,6 @@
     }
 
     function addJarritoFlavorQuick(flavorName, qty) {
-      if (state.role !== "admin") return;
       const p = state.products.find(x => x.kind === "jarrito");
       if (!p || !Array.isArray(p.flavors)) return;
       const fl = p.flavors.find(f => f.name === flavorName);
@@ -795,7 +946,6 @@
     }
 
     function addStockQuick(id, qty) {
-      if (state.role !== "admin") return;
       const p = state.products.find(x => x.id === id);
       if (!p || p.infinite || p.kind === "jarrito") return;
       const old = p.stock;
@@ -807,7 +957,6 @@
 
     function createProd(e) {
       e.preventDefault();
-      if (state.role !== "admin") return;
       const f = e.target;
       const name = f.pName.value.trim();
       if (!name) return;
@@ -884,13 +1033,86 @@
       }
     }
 
+    function renderMenuFullEditorTable() {
+      const jar = state.products.find(x => x.kind === "jarrito");
+      const jarHtml = (jar && Array.isArray(jar.flavors))
+        ? `<div class="pt-3 border-t space-y-2 text-xs">
+            <div class="font-black text-[#081736]">Sabores de Jarrito (Stock por sabor)</div>
+            <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
+              ${jar.flavors.map(fl => `
+                <div data-fl="${esc(fl.name)}" class="p-2 rounded-xl border bg-slate-50 flex items-center justify-between gap-1">
+                  <span class="font-bold text-slate-800">${esc(fl.name)}</span>
+                  <div class="flex items-center gap-1">
+                    <input type="number" value="${fl.stock}" onchange="editJarritoFlavorStock(this.closest('div[data-fl]').dataset.fl, this.value)" class="w-12 border rounded px-1.5 py-0.5 font-bold bg-white" />
+                    <button type="button" onclick="addJarritoFlavorQuick(this.closest('div[data-fl]').dataset.fl, 6)" class="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">+6</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>`
+        : "";
+
+      return `
+        <form onsubmit="createProd(event)" class="grid grid-cols-1 sm:grid-cols-6 gap-2 text-xs bg-slate-50 p-3 rounded-xl border">
+          <input name="pName" required placeholder="Nuevo producto / aderezo" class="sm:col-span-2 border rounded-lg px-2.5 py-2 bg-white font-semibold" />
+          <input name="pCat" placeholder="Categoría (ej. Extras)" value="Extras" class="border rounded-lg px-2.5 py-2 bg-white" />
+          <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-2.5 py-2 bg-white" />
+          <input name="pPrice" type="number" step="0.01" required placeholder="Precio $" class="border rounded-lg px-2.5 py-2 bg-white font-bold" />
+          <div class="flex items-center gap-1.5">
+            <input name="pStock" type="number" placeholder="Stock" class="w-14 border rounded-lg px-2 py-2 bg-white" />
+            <label class="font-bold"><input name="pInf" type="checkbox" checked /> ∞</label>
+            <button type="submit" class="bg-[#081736] text-amber-400 font-black px-2.5 py-2 rounded-lg">+</button>
+          </div>
+        </form>
+
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-xs">
+            <thead>
+              <tr class="border-b text-slate-500">
+                <th class="py-2">Nombre</th>
+                <th class="py-2">Categoría</th>
+                <th class="py-2">Costo ($)</th>
+                <th class="py-2">Precio ($)</th>
+                <th class="py-2">Stock</th>
+                <th class="py-2">∞</th>
+                <th class="py-2 text-right">Borrar</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y">
+              ${state.products.map(p => `
+                <tr data-pid="${p.id}">
+                  <td class="py-2 pr-2"><input type="text" value="${esc(p.name)}" onchange="editProd(this.closest('tr').dataset.pid,'name',this.value)" class="border rounded px-2 py-1 font-bold w-48" /></td>
+                  <td class="py-2 pr-2"><input type="text" value="${esc(p.category)}" onchange="editProd(this.closest('tr').dataset.pid,'category',this.value)" class="border rounded px-2 py-1 w-24" /></td>
+                  <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.costPrice}" onchange="editProd(this.closest('tr').dataset.pid,'costPrice',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
+                  <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.price}" onchange="editProd(this.closest('tr').dataset.pid,'price',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
+                  <td class="py-2 pr-2">
+                    ${p.kind === "jarrito" ? `<span class="text-slate-500 font-semibold">Por sabor (${getTotalStock(p)} total)</span>` : `
+                      <div class="flex items-center gap-1">
+                        <input type="number" value="${p.stock}" ${p.infinite ? "disabled" : ""} onchange="editProd(this.closest('tr').dataset.pid,'stock',this.value)" class="border rounded px-2 py-1 w-14 font-bold" />
+                        ${!p.infinite ? `
+                          <button type="button" onclick="addStockQuick(this.closest('tr').dataset.pid,5)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+5</button>
+                          <button type="button" onclick="addStockQuick(this.closest('tr').dataset.pid,10)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+10</button>
+                        ` : ""}
+                      </div>
+                    `}
+                  </td>
+                  <td class="py-2"><input type="checkbox" ${p.infinite ? "checked" : ""} onchange="editProd(this.closest('tr').dataset.pid,'infinite',this.checked)" /></td>
+                  <td class="py-2 text-right">
+                    <button type="button" onclick="deleteProdFromHome(this.closest('tr').dataset.pid)" class="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2 py-1 rounded text-[11px]">Borrar</button>
+                  </td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>
+        ${jarHtml}
+      `;
+    }
+
     function render() {
       const isAdmin = state.role === "admin";
       const fin = getFinancials();
       const cartTotal = state.cart.reduce((s, i) => s + i.price * i.qty, 0);
-      const cartCost = state.cart.reduce((s, i) => s + i.costPrice * i.qty, 0);
-      const cartProfit = cartTotal - cartCost;
-      const cartReinvest = cartProfit > 0 ? cartProfit * (state.reinvestPercent / 100) : 0;
       const paidNum = parseFloat(state.amountPaid) || 0;
       const changeNum = state.paymentMethod === "Efectivo" && paidNum >= cartTotal ? paidNum - cartTotal : 0;
 
@@ -1042,7 +1264,6 @@
               <button onclick="setSellerMode()" class="px-2.5 py-1 rounded-lg font-bold ${!isAdmin ? "bg-emerald-400 text-slate-950" : "bg-white/10 text-white"}">Vendedor</button>
               <button onclick="openAuth(null)" class="px-2.5 py-1 rounded-lg font-bold ${isAdmin ? "bg-amber-400 text-[#081736]" : "bg-white/10 text-white"}">Admin</button>
               ${isAdmin ? `
-                <span class="bg-white/10 px-2 py-1 rounded-lg">Reinversión: <input type="number" min="0" max="100" value="${state.reinvestPercent}" onchange="state.reinvestPercent=Math.min(100,Math.max(0,Number(this.value)||0));saveState();render();" class="w-11 bg-[#0d2352] text-amber-300 font-bold text-center rounded" />%</span>
                 <button onclick="openChangePass()" class="bg-white/10 text-amber-200 px-2.5 py-1 rounded-lg font-bold">🔑 Clave</button>
               ` : ""}
             </div>
@@ -1055,27 +1276,33 @@
               <button onclick="goTab('live')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "live" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📡 En Vivo</button>
               <button onclick="goTab('inventory')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "inventory" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📦 Inventario ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('cash')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cash" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">💰 Gastos y Ganancias ${!isAdmin ? "🔒" : ""}</button>
-              <button onclick="goTab('printer')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "printer" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🖨️ MP58C6</button>
+              <button onclick="goTab('printer')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "printer" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🖨️ Bluetooth 58mm</button>
             </div>
           </nav>
         </header>
 
         ${isAdmin ? `
-          <section class="max-w-7xl mx-auto px-4 pt-4 grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+          <section class="max-w-7xl mx-auto px-4 pt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
             <div class="bg-white p-3 rounded-xl border"><div class="text-slate-500">Ventas</div><div class="text-lg font-black">${fmt(fin.sales)}</div></div>
             <div class="bg-emerald-50 p-3 rounded-xl border border-emerald-200"><div class="text-emerald-800">Ganancia Ventas</div><div class="text-lg font-black text-emerald-700">${fmt(fin.grossProfit)}</div></div>
-            <div class="bg-amber-50 p-3 rounded-xl border border-amber-300"><div class="text-amber-800">- Reinversión (${state.reinvestPercent}%)</div><div class="text-lg font-black text-amber-700">${fmt(fin.reinvest)}</div></div>
             <div class="bg-purple-50 p-3 rounded-xl border border-purple-200"><div class="text-purple-800">- Sueldos y Gastos</div><div class="text-lg font-black text-purple-800">${fmt(fin.payroll + fin.expenses)}</div></div>
-            <div class="bg-[#081736] text-white p-3 rounded-xl border-2 border-amber-400 col-span-2 sm:col-span-1"><div class="text-amber-300 font-bold">Ganancia Real Final</div><div class="text-lg font-black text-emerald-400">${fmt(fin.netFinal)}</div></div>
+            <div class="bg-[#081736] text-white p-3 rounded-xl border-2 border-amber-400"><div class="text-amber-300 font-bold">Ganancia Real Final</div><div class="text-lg font-black text-emerald-400">${fmt(fin.netFinal)}</div></div>
           </section>
         ` : ""}
 
-        <main class="max-w-7xl mx-auto px-4 py-4">
+        <main class="max-w-7xl mx-auto px-4 py-4 space-y-5">
           ${state.activeTab === "pos" ? `
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-3">
-                <div class="flex flex-wrap gap-2">
-                  <input type="text" placeholder="Buscar producto..." value="${esc(state.searchQuery)}" oninput="state.searchQuery=this.value;render();" class="flex-1 border rounded-xl px-3 py-2 text-xs" />
+                <div class="flex flex-wrap gap-2 justify-between items-center">
+                  <input type="text" placeholder="Buscar producto..." value="${esc(state.searchQuery)}" oninput="state.searchQuery=this.value;render();" class="flex-1 min-w-[180px] border rounded-xl px-3 py-2 text-xs" />
+                  <button type="button" onclick="state.showQuickMenuEditorOnHome=!state.showQuickMenuEditorOnHome;saveState();render();"
+                    class="px-3 py-1.5 rounded-lg text-xs font-extrabold border border-[#081736] ${state.showQuickMenuEditorOnHome ? "bg-[#081736] text-amber-400" : "bg-white text-[#081736]"}">
+                    ✏️ Editar Menú
+                  </button>
+                </div>
+
+                <div class="flex flex-wrap gap-1.5">
                   ${cats.map(c => `
                     <button data-cat="${esc(c)}" onclick="state.selectedCategory=this.dataset.cat;render();" class="px-3 py-1.5 rounded-lg text-xs font-bold ${state.selectedCategory === c ? "bg-[#081736] text-amber-400" : "bg-slate-100"}">${esc(c)}</button>
                   `).join("")}
@@ -1107,7 +1334,7 @@
                           <span class="bg-amber-400 text-[#081736] font-black px-2.5 py-1 rounded-lg text-sm">${fmt(p.price)}</span>
                         </div>
                         <div class="mt-2 pt-1.5 border-t flex justify-between text-[11px]">
-                          ${isAdmin ? `<span>Costo: <b>${fmt(p.costPrice)}</b></span>` : `<span>${p.kind === "standard" ? "Toca para agregar" : "Toca para elegir"}</span>`}
+                          <span>${p.kind === "ramen" ? "Precio variable al agregar" : (p.kind === "standard" ? "Toca para agregar" : "Toca para elegir")}</span>
                           ${state.showHomeStock ? `<span>${p.infinite ? "Stock: ∞" : `Quedan: ${Math.max(0, totalStock - getCartReservedQty(p.id, null))}`}</span>` : `<span></span>`}
                         </div>
                       </div>
@@ -1133,31 +1360,40 @@
                     </div>
                   </div>
 
-                  <div class="divide-y max-h-52 overflow-y-auto text-xs">
+                  <div class="divide-y max-h-60 overflow-y-auto text-xs">
                     ${state.cart.length === 0 ? `<div class="py-6 text-center text-slate-400">Sin productos en la orden.</div>` :
                       state.cart.map((it, idx) => `
-                        <div class="py-2 flex items-center justify-between gap-2">
-                          <div class="flex-1">
-                            <div class="font-bold">${esc(it.displayName)}</div>
-                            ${it.detail ? `<div class="text-[11px] text-amber-800 font-semibold">${esc(it.detail)}</div>` : ""}
+                        <div class="py-2 space-y-1.5">
+                          <div class="flex items-center justify-between gap-2">
+                            <div class="flex-1">
+                              <div class="font-bold">${esc(it.displayName)}</div>
+                              ${it.detail ? `<div class="text-[11px] text-amber-800 font-semibold">${esc(it.detail)}</div>` : ""}
+                            </div>
+                            <div class="flex items-center gap-1">
+                              <button type="button" onclick="changeQty(${idx},-1)" class="w-6 h-6 bg-slate-200 rounded font-black">-</button>
+                              <span class="w-5 text-center font-bold">${it.qty}</span>
+                              <button type="button" onclick="changeQty(${idx},1)" class="w-6 h-6 bg-[#081736] text-amber-400 rounded font-black">+</button>
+                              <button type="button" onclick="removeCartItem(${idx})" title="Borrar producto u opción" class="w-6 h-6 bg-rose-100 hover:bg-rose-200 text-rose-700 rounded font-black text-xs">✕</button>
+                            </div>
+                            <div class="font-extrabold">${fmt(it.price * it.qty)}</div>
                           </div>
-                          <div class="flex items-center gap-1">
-                            <button onclick="changeQty(${idx},-1)" class="w-6 h-6 bg-slate-200 rounded font-black">-</button>
-                            <span class="w-5 text-center font-bold">${it.qty}</span>
-                            <button onclick="changeQty(${idx},1)" class="w-6 h-6 bg-[#081736] text-amber-400 rounded font-black">+</button>
-                          </div>
-                          <div class="font-extrabold">${fmt(it.price * it.qty)}</div>
+                          ${it.kind === "ramen" ? `
+                            <div class="flex flex-wrap items-center gap-2 bg-amber-50/70 p-2 rounded-lg border border-amber-200 text-[11px]">
+                              <label class="font-bold text-slate-700">Precio Ramen $:
+                                <input type="number" step="0.5" value="${it.price}" onchange="updateCartRamenPrice(${idx}, this.value)" class="w-16 border rounded px-1.5 py-0.5 font-extrabold bg-white ml-1" />
+                              </label>
+                              <label class="font-bold text-slate-700">Costo $:
+                                <input type="number" step="0.5" value="${it.costPrice}" onchange="updateCartRamenCost(${idx}, this.value)" class="w-16 border rounded px-1.5 py-0.5 font-bold bg-white ml-1" />
+                              </label>
+                            </div>
+                          ` : ""}
                         </div>
                       `).join("")}
                   </div>
 
-                  <div class="bg-slate-50 p-3 rounded-xl border text-xs space-y-1">
-                    ${isAdmin ? `
-                      <div class="flex justify-between"><span>Costo insumos:</span><b>${fmt(cartCost)}</b></div>
-                      <div class="flex justify-between text-emerald-700 font-bold"><span>Ganancia venta:</span><span>${fmt(cartProfit)}</span></div>
-                      <div class="flex justify-between text-amber-800 font-bold"><span>Reinversión (${state.reinvestPercent}%):</span><span>${fmt(cartReinvest)}</span></div>
-                    ` : ""}
-                    <div class="flex justify-between text-base font-black pt-1 border-t"><span>TOTAL:</span><span>${fmt(cartTotal)}</span></div>
+                  <div class="bg-slate-50 p-3 rounded-xl border flex justify-between items-center text-base font-black text-[#081736]">
+                    <span>TOTAL A COBRAR:</span>
+                    <span>${fmt(cartTotal)}</span>
                   </div>
 
                   <div class="grid grid-cols-2 gap-2 text-xs">
@@ -1177,59 +1413,83 @@
                   <div class="bg-white p-4 rounded-2xl border-2 border-amber-400 space-y-2.5">
                     <div class="flex justify-between items-center text-xs">
                       <span class="font-black text-[#081736]">${esc(state.lastTicket.orderName)} (#${state.lastTicket.id})</span>
-                      <span class="font-extrabold">${fmt(state.lastTicket.totalSale)}</span>
+                      <span class="text-xs font-extrabold px-2 py-0.5 rounded-full ${state.lastTicket.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">${esc(state.lastTicket.status)}</span>
                     </div>
+                    <div class="text-[11px] text-slate-500">Bluetooth: <b>${esc(state.printerStatus)}</b></div>
                     <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                      <button onclick="printKitchen58System(state.lastTicket)" class="bg-emerald-600 text-white py-2 rounded-lg">👨‍🍳 Comanda Cocina 58mm</button>
-                      <button onclick="printCustomer58System(state.lastTicket)" class="bg-[#081736] text-amber-400 py-2 rounded-lg">🧾 Ticket Cliente 58mm</button>
+                      <button onclick="printBT(state.lastTicket, true)" class="bg-blue-600 text-white py-2 rounded-lg">🔵 BT Comanda</button>
+                      <button onclick="printBT(state.lastTicket, false)" class="bg-indigo-700 text-white py-2 rounded-lg">🔵 BT Ticket</button>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                      <button onclick="printBT(state.lastTicket, true)" class="bg-blue-600 text-white py-2 rounded-lg">BT Comanda Cocina</button>
-                      <button onclick="printRaw(state.lastTicket, true)" class="bg-amber-400 text-[#081736] py-2 rounded-lg">RawBT Cocina</button>
+                    <div class="grid grid-cols-3 gap-2 text-xs font-bold">
+                      <button onclick="printKitchen58System(state.lastTicket)" class="bg-emerald-600 text-white py-2 rounded-lg">Comanda 58mm</button>
+                      <button onclick="printCustomer58System(state.lastTicket)" class="bg-[#081736] text-amber-400 py-2 rounded-lg">Ticket 58mm</button>
+                      <button onclick="markOrderDelivered(state.lastTicket.id)" class="bg-teal-600 text-white py-2 rounded-lg">✓ Entregado</button>
                     </div>
                   </div>
                 ` : ""}
               </div>
             </div>
+
+            ${state.showQuickMenuEditorOnHome ? `
+              <div class="bg-white p-4 rounded-2xl border-2 border-[#081736] space-y-3">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2">
+                  <div>
+                    <h2 class="font-black text-[#081736] text-sm sm:text-base">Editar Menú</h2>
+                    <p class="text-[11px] text-slate-500">Modifica cualquier producto, precio, costo o existencias directo aquí mismo.</p>
+                  </div>
+                  <button type="button" onclick="connectBT()" class="bg-blue-600 text-white font-bold px-3 py-1.5 rounded-lg text-xs">
+                    🔗 ${esc(state.printerDeviceName ? "BT: " + state.printerDeviceName : "Conectar Impresora BT")}
+                  </button>
+                </div>
+                ${renderMenuFullEditorTable()}
+              </div>
+            ` : ""}
           ` : ""}
 
           ${state.activeTab === "homesetup" && isAdmin ? `
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <form onsubmit="saveHomeSettings(event)" class="lg:col-span-6 bg-white p-5 rounded-2xl border space-y-3 text-xs">
-                <h2 class="font-black text-[#081736] text-base">Editar Encabezado y Tarjetas de Pantalla Principal</h2>
-                <div>
-                  <label class="font-bold text-slate-600 block mb-1">Título principal</label>
-                  <input name="hTitle" type="text" value="${esc(state.homeTitle)}" class="w-full border rounded-lg px-3 py-2 font-bold" />
-                </div>
-                <div>
-                  <label class="font-bold text-slate-600 block mb-1">Subtítulo</label>
-                  <input name="hSub" type="text" value="${esc(state.homeSubtitle)}" class="w-full border rounded-lg px-3 py-2" />
-                </div>
-                <div class="flex flex-wrap gap-4 pt-1">
-                  <label class="flex items-center gap-1.5 font-bold"><input name="hDesc" type="checkbox" ${state.showHomeDesc ? "checked" : ""} /> Mostrar descripción en tarjetas</label>
-                  <label class="flex items-center gap-1.5 font-bold"><input name="hStock" type="checkbox" ${state.showHomeStock ? "checked" : ""} /> Mostrar cantidad disponible</label>
-                </div>
-                <button type="submit" class="bg-[#081736] text-amber-400 font-black px-4 py-2.5 rounded-xl">Guardar Pantalla Principal</button>
-              </form>
-
-              <form onsubmit="createProd(event)" class="lg:col-span-6 bg-white p-5 rounded-2xl border space-y-3 text-xs">
-                <h2 class="font-black text-[#081736] text-base">Agregar Rápido Aderezo o Producto Nuevo a la Pantalla</h2>
-                <p class="text-slate-500">Ideal cuando te llega un aderezo nuevo, salsa, snack o producto de temporada para vender hoy.</p>
-                <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <input name="pName" required placeholder="Ej. Aderezo Chipotle / Salsa Mango" class="border rounded-lg px-3 py-2 font-bold" />
-                  <input name="pCat" placeholder="Categoría (ej. Extras, Snacks)" value="Extras" class="border rounded-lg px-3 py-2" />
-                  <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-3 py-2" />
-                  <input name="pPrice" type="number" step="0.01" required placeholder="Precio venta $" class="border rounded-lg px-3 py-2 font-bold" />
-                </div>
-                <input name="pDesc" type="text" placeholder="Descripción corta (opcional)" class="w-full border rounded-lg px-3 py-2" />
-                <div class="flex items-center justify-between gap-2">
-                  <div class="flex items-center gap-2">
-                    <input name="pStock" type="number" placeholder="Piezas" class="w-20 border rounded-lg px-2.5 py-2" />
-                    <label class="font-bold"><input name="pInf" type="checkbox" checked /> Stock infinito (∞)</label>
+            <div class="space-y-4">
+              <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <form onsubmit="saveHomeSettings(event)" class="lg:col-span-6 bg-white p-5 rounded-2xl border space-y-3 text-xs">
+                  <h2 class="font-black text-[#081736] text-base">Editar Encabezado y Tarjetas de Pantalla Principal</h2>
+                  <div>
+                    <label class="font-bold text-slate-600 block mb-1">Título principal</label>
+                    <input name="hTitle" type="text" value="${esc(state.homeTitle)}" class="w-full border rounded-lg px-3 py-2 font-bold" />
                   </div>
-                  <button type="submit" class="bg-emerald-600 text-white font-black px-4 py-2.5 rounded-xl">+ Agregar a Pantalla</button>
-                </div>
-              </form>
+                  <div>
+                    <label class="font-bold text-slate-600 block mb-1">Subtítulo</label>
+                    <input name="hSub" type="text" value="${esc(state.homeSubtitle)}" class="w-full border rounded-lg px-3 py-2" />
+                  </div>
+                  <div class="flex flex-wrap gap-4 pt-1">
+                    <label class="flex items-center gap-1.5 font-bold"><input name="hDesc" type="checkbox" ${state.showHomeDesc ? "checked" : ""} /> Mostrar descripción en tarjetas</label>
+                    <label class="flex items-center gap-1.5 font-bold"><input name="hStock" type="checkbox" ${state.showHomeStock ? "checked" : ""} /> Mostrar cantidad disponible</label>
+                  </div>
+                  <button type="submit" class="bg-[#081736] text-amber-400 font-black px-4 py-2.5 rounded-xl">Guardar Pantalla Principal</button>
+                </form>
+
+                <form onsubmit="createProd(event)" class="lg:col-span-6 bg-white p-5 rounded-2xl border space-y-3 text-xs">
+                  <h2 class="font-black text-[#081736] text-base">Agregar Rápido Aderezo o Producto Nuevo a la Pantalla</h2>
+                  <p class="text-slate-500">Ideal cuando te llega un aderezo nuevo, salsa, snack o producto de temporada para vender hoy.</p>
+                  <div class="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <input name="pName" required placeholder="Ej. Aderezo Chipotle / Salsa Mango" class="border rounded-lg px-3 py-2 font-bold" />
+                    <input name="pCat" placeholder="Categoría (ej. Extras, Snacks)" value="Extras" class="border rounded-lg px-3 py-2" />
+                    <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-3 py-2" />
+                    <input name="pPrice" type="number" step="0.01" required placeholder="Precio venta $" class="border rounded-lg px-3 py-2 font-bold" />
+                  </div>
+                  <input name="pDesc" type="text" placeholder="Descripción corta (opcional)" class="w-full border rounded-lg px-3 py-2" />
+                  <div class="flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2">
+                      <input name="pStock" type="number" placeholder="Piezas" class="w-20 border rounded-lg px-2.5 py-2" />
+                      <label class="font-bold"><input name="pInf" type="checkbox" checked /> Stock infinito (∞)</label>
+                    </div>
+                    <button type="submit" class="bg-emerald-600 text-white font-black px-4 py-2.5 rounded-xl">+ Agregar a Pantalla</button>
+                  </div>
+                </form>
+              </div>
+
+              <div class="bg-white p-5 rounded-2xl border-2 border-[#081736] space-y-3">
+                <h2 class="font-black text-[#081736] text-base">Editar Todo el Menú Completo</h2>
+                ${renderMenuFullEditorTable()}
+              </div>
             </div>
           ` : ""}
 
@@ -1241,7 +1501,11 @@
                     <div class="text-[10px] font-bold uppercase text-amber-600">Preparación y Entrega</div>
                     <h2 class="font-black text-[#081736] text-base">Comanda de Cocina</h2>
                   </div>
-                  ${kitchenTarget ? `<span class="text-xs font-black bg-amber-100 text-[#081736] px-2.5 py-1 rounded-lg">${esc(kitchenTarget.orderName)}</span>` : ""}
+                  ${kitchenTarget ? `
+                    <span class="text-xs font-extrabold px-2.5 py-1 rounded-full ${kitchenTarget.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
+                      ${esc(kitchenTarget.status || "En cocina")}
+                    </span>
+                  ` : ""}
                 </div>
 
                 ${!kitchenTarget ? `<p class="text-xs text-slate-400 py-8 text-center">Cobra una orden para generar su comanda de cocina.</p>` : `
@@ -1267,6 +1531,10 @@
                     <button onclick="printBT(kitchenTarget, true)" class="bg-blue-600 text-white py-2.5 rounded-lg">BT Directo Cocina</button>
                     <button onclick="printRaw(kitchenTarget, true)" class="bg-amber-400 text-[#081736] py-2.5 rounded-lg">RawBT Cocina</button>
                   </div>
+
+                  <button onclick="markOrderDelivered(kitchenTarget.id)" class="w-full py-2.5 rounded-xl text-xs font-black ${kitchenTarget.status === "Entregado" ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-emerald-600 hover:bg-emerald-700 text-white"}">
+                    ${kitchenTarget.status === "Entregado" ? "✓ Entregado" : "✓ Marcar como Entregado"}
+                  </button>
                 `}
               </div>
 
@@ -1275,15 +1543,17 @@
                 ${state.orders.length === 0 ? `<p class="text-xs text-slate-400 py-6">Aún no hay órdenes registradas.</p>` :
                   state.orders.map(o => `
                     <div class="p-3 rounded-xl border bg-slate-50 text-xs space-y-1.5">
-                      <div class="flex justify-between items-center">
+                      <div class="flex justify-between items-center gap-2">
                         <span class="font-black text-[#081736]">${esc(o.orderName)} (#${o.id})</span>
-                        <span class="text-slate-500">${o.time} • ${esc(o.serviceType)}</span>
+                        <span class="text-[11px] font-extrabold px-2.5 py-0.5 rounded-full ${o.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">${esc(o.status)}</span>
                       </div>
                       <div class="text-slate-700 font-semibold">
                         ${o.items.map(i => `${i.qty}x ${esc(i.displayName)}${i.detail ? ` [${esc(i.detail)}]` : ""}`).join(" • ")}
                       </div>
-                      <div class="pt-1 flex justify-end">
-                        <button onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-3 py-1 rounded-lg font-bold">Ver / Imprimir Comanda</button>
+                      <div class="pt-1 flex flex-wrap justify-end gap-1.5">
+                        <button onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 text-white px-3 py-1 rounded-lg font-bold">✓ Marcar como Entregado</button>
+                        <button onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-3 py-1 rounded-lg font-bold">Ver Comanda</button>
+                        <button onclick="printBT(state.orders.find(function(x){return x.id===${o.id};}), true)" class="bg-blue-600 text-white px-3 py-1 rounded-lg font-bold">BT Cocina</button>
                       </div>
                     </div>
                   `).join("")}
@@ -1298,10 +1568,14 @@
                 ${state.orders.length === 0 ? `<p class="text-xs text-slate-400 py-6">Sin órdenes todavía.</p>` :
                   state.orders.map(o => `
                     <div class="p-3 rounded-xl border bg-slate-50 text-xs flex flex-wrap justify-between items-center gap-2">
-                      <div><b>${esc(o.orderName)}</b> (#${o.id}) • ${o.time} • ${esc(o.serviceType)} • <b>${fmt(o.totalSale)}</b></div>
+                      <div>
+                        <b>${esc(o.orderName)}</b> (#${o.id}) • ${o.time} • <b>${fmt(o.totalSale)}</b>
+                        <span class="ml-2 px-2 py-0.5 rounded-full text-[10px] font-extrabold ${o.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">${esc(o.status)}</span>
+                      </div>
                       <div class="flex gap-1.5">
-                        <button onclick="openKitchenForOrderId(${o.id})" class="bg-emerald-600 text-white px-2.5 py-1 rounded font-bold">Comanda</button>
-                        <button onclick="printCustomer58System(state.orders.find(function(x){return x.id===${o.id};}))" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded font-bold">Ticket</button>
+                        <button onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 text-white px-2.5 py-1 rounded font-bold">✓ Entregado</button>
+                        <button onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded font-bold">Comanda</button>
+                        <button onclick="printCustomer58System(state.orders.find(function(x){return x.id===${o.id};}))" class="bg-slate-800 text-white px-2.5 py-1 rounded font-bold">Ticket</button>
                       </div>
                     </div>
                   `).join("")}
@@ -1315,68 +1589,10 @@
 
           ${state.activeTab === "inventory" && isAdmin ? `
             <div class="space-y-4">
-              <form onsubmit="createProd(event)" class="bg-white p-4 rounded-2xl border grid grid-cols-1 sm:grid-cols-6 gap-2 text-xs">
-                <input name="pName" required placeholder="Nombre producto" class="sm:col-span-2 border rounded-lg px-2.5 py-2" />
-                <input name="pCat" placeholder="Categoría" class="border rounded-lg px-2.5 py-2" />
-                <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-2.5 py-2" />
-                <input name="pPrice" type="number" step="0.01" required placeholder="Venta $" class="border rounded-lg px-2.5 py-2" />
-                <div class="flex items-center gap-1.5">
-                  <input name="pStock" type="number" placeholder="Stock" class="w-16 border rounded-lg px-2 py-2" />
-                  <label class="font-bold"><input name="pInf" type="checkbox" /> ∞</label>
-                  <button type="submit" class="bg-[#081736] text-amber-400 font-black px-2.5 py-2 rounded-lg">+</button>
-                </div>
-              </form>
-
-              <div class="bg-white p-4 rounded-2xl border overflow-x-auto">
-                <h2 class="font-black text-[#081736] text-sm mb-2">Menú, Costos (incluye Ramen) y Stock</h2>
-                <table class="w-full text-left text-xs">
-                  <thead><tr class="border-b text-slate-500"><th class="py-2">Nombre</th><th class="py-2">Categoría</th><th class="py-2">Costo $</th><th class="py-2">Venta $</th><th class="py-2">Stock</th><th class="py-2">∞</th></tr></thead>
-                  <tbody class="divide-y">
-                    ${state.products.map(p => `
-                      <tr data-pid="${p.id}">
-                        <td class="py-2 pr-2"><input type="text" value="${esc(p.name)}" onchange="editProd(this.closest('tr').dataset.pid,'name',this.value)" class="border rounded px-2 py-1 font-bold w-48" /></td>
-                        <td class="py-2 pr-2"><input type="text" value="${esc(p.category)}" onchange="editProd(this.closest('tr').dataset.pid,'category',this.value)" class="border rounded px-2 py-1 w-24" /></td>
-                        <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.costPrice}" onchange="editProd(this.closest('tr').dataset.pid,'costPrice',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
-                        <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.price}" onchange="editProd(this.closest('tr').dataset.pid,'price',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
-                        <td class="py-2 pr-2">
-                          ${p.kind === "jarrito" ? `<span class="text-slate-500 font-semibold">Por sabor abajo (${getTotalStock(p)} total)</span>` : `
-                            <div class="flex items-center gap-1">
-                              <input type="number" value="${p.stock}" ${p.infinite ? "disabled" : ""} onchange="editProd(this.closest('tr').dataset.pid,'stock',this.value)" class="border rounded px-2 py-1 w-14 font-bold" />
-                              ${!p.infinite ? `
-                                <button type="button" onclick="addStockQuick(this.closest('tr').dataset.pid,5)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+5</button>
-                                <button type="button" onclick="addStockQuick(this.closest('tr').dataset.pid,10)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+10</button>
-                              ` : ""}
-                            </div>
-                          `}
-                        </td>
-                        <td class="py-2"><input type="checkbox" ${p.infinite ? "checked" : ""} onchange="editProd(this.closest('tr').dataset.pid,'infinite',this.checked)" /></td>
-                      </tr>
-                    `).join("")}
-                  </tbody>
-                </table>
+              <div class="bg-white p-4 rounded-2xl border space-y-3">
+                <h2 class="font-black text-[#081736] text-sm">Menú, Precios, Costos y Stock</h2>
+                ${renderMenuFullEditorTable()}
               </div>
-
-              ${(() => {
-                const jar = state.products.find(x => x.kind === "jarrito");
-                if (!jar || !Array.isArray(jar.flavors)) return "";
-                return `
-                  <div class="bg-white p-4 rounded-2xl border space-y-2.5 text-xs">
-                    <h3 class="font-black text-[#081736] text-sm">Sabores de Jarrito — Disponibilidad por Sabor</h3>
-                    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2">
-                      ${jar.flavors.map(fl => `
-                        <div data-fl="${esc(fl.name)}" class="p-2.5 rounded-xl border bg-slate-50 space-y-1.5">
-                          <div class="font-black text-slate-800">${esc(fl.name)}</div>
-                          <div class="flex items-center gap-1">
-                            <input type="number" value="${fl.stock}" onchange="editJarritoFlavorStock(this.closest('div[data-fl]').dataset.fl, this.value)" class="w-16 border rounded px-2 py-1 font-bold bg-white" />
-                            <button type="button" onclick="addJarritoFlavorQuick(this.closest('div[data-fl]').dataset.fl, 6)" class="bg-emerald-100 text-emerald-800 px-1.5 py-1 rounded font-bold">+6</button>
-                          </div>
-                        </div>
-                      `).join("")}
-                    </div>
-                  </div>
-                `;
-              })()}
-
               <div class="bg-white p-4 rounded-2xl border space-y-2">
                 <h3 class="font-black text-[#081736] text-sm">Registro de Modificaciones de Inventario</h3>
                 <div class="max-h-60 overflow-y-auto divide-y text-xs">
@@ -1395,11 +1611,10 @@
           ${state.activeTab === "cash" && isAdmin ? `
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-2.5 text-xs">
-                <h2 class="font-black text-[#081736] text-base">Ganancia Después de Reinvertir y Pagar Sueldos</h2>
+                <h2 class="font-black text-[#081736] text-base">Ganancia Después de Costos, Sueldos y Gastos</h2>
                 <div class="flex justify-between"><span>Ventas Totales:</span><b>${fmt(fin.sales)}</b></div>
                 <div class="flex justify-between"><span>(-) Costo Insumos:</span><b>-${fmt(fin.cost)}</b></div>
                 <div class="flex justify-between text-emerald-700 font-bold"><span>Ganancia de Ventas:</span><span>${fmt(fin.grossProfit)}</span></div>
-                <div class="flex justify-between text-amber-800 font-bold"><span>(-) Reinversión (${state.reinvestPercent}%):</span><span>-${fmt(fin.reinvest)}</span></div>
                 <div class="flex justify-between text-purple-800 font-bold"><span>(-) Sueldos / Nómina:</span><span>-${fmt(fin.payroll)}</span></div>
                 <div class="flex justify-between text-rose-700 font-bold"><span>(-) Otros Gastos:</span><span>-${fmt(fin.expenses)}</span></div>
                 <div class="flex justify-between text-base font-black pt-2 border-t text-[#081736]"><span>GANANCIA REAL FINAL:</span><span>${fmt(fin.netFinal)}</span></div>
@@ -1430,15 +1645,20 @@
           ` : ""}
 
           ${state.activeTab === "printer" ? `
-            <div class="bg-white p-5 rounded-2xl border max-w-xl mx-auto space-y-4 text-xs">
-              <div class="flex justify-between items-center">
-                <div><h2 class="font-black text-[#081736] text-base">Impresora MP58C6 (58mm)</h2><div class="text-slate-500">${esc(state.printerStatus)}</div></div>
-                <button onclick="connectBT()" class="bg-blue-600 text-white font-bold px-3 py-2 rounded-xl">Vincular BT</button>
+            <div class="bg-white p-5 rounded-2xl border max-w-2xl mx-auto space-y-4 text-xs">
+              <div class="flex flex-wrap justify-between items-center gap-2">
+                <div>
+                  <h2 class="font-black text-[#081736] text-base">Impresora Bluetooth 58mm (Comanda y Ticket)</h2>
+                  <div class="text-slate-500">Estado: <b>${esc(state.printerStatus)}</b></div>
+                </div>
+                <button onclick="connectBT()" class="bg-blue-600 text-white font-bold px-4 py-2 rounded-xl">🔗 Vincular Impresora BT</button>
               </div>
-              <div class="grid grid-cols-3 gap-2 font-bold">
-                <button onclick="printBT(getSample(), false)" class="bg-blue-600 text-white py-2.5 rounded-lg">BT Cliente</button>
-                <button onclick="printBT(getSample(), true)" class="bg-emerald-600 text-white py-2.5 rounded-lg">BT Cocina</button>
-                <button onclick="printCustomer58System(getSample())" class="bg-[#081736] text-white py-2.5 rounded-lg">Prueba 58mm</button>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-bold">
+                <button onclick="printBT(getSample(), true)" class="bg-emerald-600 text-white py-2.5 rounded-xl">🔵 Enviar Comanda Cocina por BT</button>
+                <button onclick="printBT(getSample(), false)" class="bg-blue-600 text-white py-2.5 rounded-xl">🔵 Enviar Ticket Cliente por BT</button>
+                <button onclick="printRaw(getSample(), true)" class="bg-amber-400 text-[#081736] py-2.5 rounded-xl">RawBT Cocina (Android)</button>
+                <button onclick="printCustomer58System(getSample())" class="bg-[#081736] text-white py-2.5 rounded-xl">Imprimir Prueba 58mm</button>
               </div>
             </div>
           ` : ""}
