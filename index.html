@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v34_cloud";
+    const STORAGE_KEY = "the_twins_pos_v35_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -714,8 +714,14 @@ create policy "Acceso publico POS"
               <span class="font-black text-[#081736] text-sm">Jornada: ${esc(activeSess.dayName)} ${esc(activeSess.dateLabel)}</span>
               <span class="text-slate-500 ml-2">Inicio: <b>${esc(activeSess.openedAt)}</b> • Cierre: <b>${esc(activeSess.closedAt)}</b></span>
             </div>
-            <div class="font-black text-emerald-700 text-sm">
-              Total del día: ${fmt(activeSess.totalSales)} (${activeSess.ordersCount} comandas)
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="font-black text-emerald-700 text-sm">Total del día: ${fmt(activeSess.totalSales)} (${activeSess.ordersCount} comandas)</span>
+              ${state.role === "admin" ? `
+                <button type="button" data-deldate="${esc(activeSess.dateLabel)}" onclick="deleteClosedDaySession(this.dataset.deldate)"
+                  class="bg-rose-100 hover:bg-rose-200 text-rose-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">
+                  🗑️ Borrar día de prueba
+                </button>
+              ` : ""}
             </div>
           </div>
 
@@ -833,6 +839,59 @@ create policy "Acceso publico POS"
       saveState(true);
       render();
       showToast("✓ Comandas limpias. Venta lista para iniciar.");
+    }
+
+    function resetAllTestDataForThursday() {
+      if (state.role !== "admin") {
+        openAuth("cash");
+        return;
+      }
+      if (state.pendingPrintOrder) {
+        showToast("Termina las 2 impresiones antes de borrar pruebas.");
+        return;
+      }
+      const msg = "¿Borrar TODAS las órdenes, días anteriores, cortes y movimientos de prueba para dejar todo en $0.00 y empezar limpio el Jueves? (Tu menú, precios, stock y contraseñas se conservan intactos)";
+      if (!confirm(msg)) return;
+
+      const now = new Date();
+      state.orders = [];
+      state.daySessions = [];
+      state.dayCuts = [];
+      state.cashMovements = [];
+      state.lastTicket = null;
+      state.lastKitchenTicket = null;
+      state.inspectedOrderId = null;
+      state.selectedHistorySessionId = null;
+      state.dayActive = true;
+      state.cashOpen = true;
+      state.dayStartedAt = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      state.dayStartedLabel = now.toLocaleDateString("es-MX");
+
+      addLiveLog("Datos de prueba borrados — Sistema en $0.00 listo para iniciar el Jueves");
+      saveLocalOnly();
+      render();
+      showToast("✓ Pruebas borradas. Todo listo en $0.00 para el Jueves.");
+      if (hasCloud()) {
+        pushToCloud();
+      }
+    }
+
+    function deleteClosedDaySession(dateLabel) {
+      if (state.role !== "admin") {
+        openAuth("kitchen");
+        return;
+      }
+      if (!confirm(`¿Eliminar el registro de prueba del día ${dateLabel} (comandas y corte de ese día)?`)) return;
+      state.daySessions = (state.daySessions || []).filter(s => s.dateLabel !== dateLabel);
+      state.dayCuts = (state.dayCuts || []).filter(c => c.dateLabel !== dateLabel);
+      state.selectedHistorySessionId = state.daySessions.length > 0 ? state.daySessions[0].dateLabel : null;
+      addLiveLog(`Registro de prueba eliminado (${dateLabel})`);
+      saveLocalOnly();
+      render();
+      showToast(`✓ Día ${dateLabel} eliminado`);
+      if (hasCloud()) {
+        pushToCloud();
+      }
     }
 
     function quickPaySundayPayroll(e) {
@@ -2751,9 +2810,14 @@ create policy "Acceso publico POS"
                     <h2 class="font-black text-base sm:text-lg">Corte Semanal Lun–Dom y Pago de Sueldos del Domingo</h2>
                     <p class="text-slate-300 text-[11px]">Acumula toda la semana de lunes a domingo para hacer corte los domingos, registrar sueldos y cerrar el ciclo semanal.</p>
                   </div>
-                  <button type="button" onclick="clearKitchenOrdersForNewDay(false)" class="bg-amber-400 hover:bg-amber-300 text-[#081736] font-black px-3.5 py-2 rounded-xl text-xs">
-                    🗑️ Corte de Domingo y Borrar Comandas
-                  </button>
+                  <div class="flex flex-wrap gap-2">
+                    <button type="button" onclick="resetAllTestDataForThursday()" class="bg-rose-600 hover:bg-rose-500 text-white font-black px-3.5 py-2 rounded-xl text-xs">
+                      🧹 Borrar Pruebas (Iniciar Jueves en $0)
+                    </button>
+                    <button type="button" onclick="clearKitchenOrdersForNewDay(false)" class="bg-amber-400 hover:bg-amber-300 text-[#081736] font-black px-3.5 py-2 rounded-xl text-xs">
+                      🗑️ Corte de Domingo y Borrar Comandas
+                    </button>
+                  </div>
                 </div>
 
                 <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
