@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v24_cloud";
+    const STORAGE_KEY = "the_twins_pos_v26_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -1200,34 +1200,43 @@ create policy "Acceso publico POS"
     }
 
     function markOrderDelivered(orderId) {
-      const ord = state.orders.find(o => o.id === orderId);
+      const targetId = Number(orderId);
+      const ord = state.orders.find(o => Number(o.id) === targetId);
       const nowTime = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
       if (ord) {
         ord.status = "Entregado";
         ord.deliveredAt = nowTime;
       }
-      if (state.lastTicket && state.lastTicket.id === orderId) {
-        state.lastTicket.status = "Entregado";
-        state.lastTicket.deliveredAt = nowTime;
+
+      if (state.lastTicket && Number(state.lastTicket.id) === targetId) {
+        state.lastTicket = Object.assign({}, state.lastTicket, { status: "Entregado", deliveredAt: nowTime });
       }
-      if (state.lastKitchenTicket && state.lastKitchenTicket.id === orderId) {
-        state.lastKitchenTicket.status = "Entregado";
-        state.lastKitchenTicket.deliveredAt = nowTime;
+
+      if (state.lastKitchenTicket && Number(state.lastKitchenTicket.id) === targetId) {
+        state.lastKitchenTicket = Object.assign({}, state.lastKitchenTicket, { status: "Entregado", deliveredAt: nowTime });
+      } else if (ord) {
+        state.lastKitchenTicket = Object.assign({}, ord);
       }
-      state.inspectedOrderId = orderId;
-      addLiveLog(`Orden #${orderId} marcada como ENTREGADO`);
-      saveState(true);
+
+      state.inspectedOrderId = targetId;
+      addLiveLog(`Orden #${targetId} marcada como ENTREGADO`);
+      saveLocalOnly();
       render();
+      showToast(`✓ Orden #${targetId} marcada como Entregado`);
+      if (hasCloud()) {
+        pushToCloud();
+      }
     }
 
-
     function reprintOrderSmart(orderId) {
-      const ord = state.orders.find(x => x.id === orderId) || (state.lastTicket && state.lastTicket.id === orderId ? state.lastTicket : null);
+      const targetId = Number(orderId);
+      const ord = state.orders.find(x => Number(x.id) === targetId) || (state.lastTicket && Number(state.lastTicket.id) === targetId ? state.lastTicket : null);
       if (!ord) return;
       state.lastKitchenTicket = ord;
       state.lastTicket = ord;
       state.inspectedOrderId = ord.id;
-      saveState(false);
+      saveLocalOnly();
       render();
       if (btChar || btDevice) {
         printBT(ord, true);
@@ -1235,6 +1244,7 @@ create policy "Acceso publico POS"
         printKitchen58System(ord);
       }
     }
+
 
     function inspectOrder(orderId) {
       state.inspectedOrderId = orderId;
@@ -2287,15 +2297,13 @@ create policy "Acceso publico POS"
 
                 ${!kitchenTarget ? `<p class="text-xs text-slate-400 py-8 text-center">Cobra una orden para generar su comanda de cocina.</p>` : `
                   ${isKitchenDelivered ? `
-                    <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 bg-emerald-50/90 border border-emerald-200 rounded-xl px-3 py-2 text-xs">
+                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 rounded-xl px-3.5 py-2 text-xs">
                       <div>
                         <span class="font-black text-[#081736]">${esc(kitchenTarget.orderName)}</span>
                         <span class="text-slate-500 ml-1">• Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
                         ${kitchenTarget.deliveredAt ? `<span class="text-emerald-700 font-bold ml-2">(Entregado ${kitchenTarget.deliveredAt})</span>` : ""}
                       </div>
-                      <div class="flex items-center gap-1.5">
-                        <span class="text-[11px] text-slate-600 font-semibold">${kitchenTarget.items.map(i => `${i.qty}x ${esc(i.displayName)}`).join(", ")}</span>
-                      </div>
+                      <button type="button" onclick="inspectOrder(${kitchenTarget.id})" class="bg-[#081736] text-amber-400 font-bold px-3 py-1 rounded-lg text-[11px]">Ver Detalle</button>
                     </div>
                   ` : `
                     <div class="mt-4 bg-slate-50 p-4 rounded-xl border space-y-2.5 text-sm">
@@ -2340,7 +2348,7 @@ create policy "Acceso publico POS"
                     ${state.orders.map(o => {
                       const done = o.status === "Entregado";
                       return `
-                        <div onclick="openKitchenForOrderId(${o.id})" class="cursor-pointer rounded-xl border transition-all ${done ? "p-2 bg-slate-50/90 border-slate-200 hover:border-slate-400" : "p-3.5 bg-white border-amber-300 hover:border-amber-500"} ${kitchenTarget && kitchenTarget.id === o.id ? "ring-2 ring-[#081736]" : ""}">
+                        <div class="rounded-xl border transition-all ${done ? "p-2.5 bg-slate-50/80 border-slate-200" : "p-3.5 bg-white border-amber-300"}">
                           <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
                             <div class="flex flex-wrap items-center gap-2">
                               <span class="font-black text-[#081736]">${esc(o.orderName)}</span>
