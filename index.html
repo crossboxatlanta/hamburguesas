@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v26_cloud";
+    const STORAGE_KEY = "the_twins_pos_v28_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -74,6 +74,11 @@ create policy "Acceso publico POS"
       authError: "",
       pendingTab: null,
       cashOpen: true,
+      dayActive: true,
+      dayStartedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+      dayStartedLabel: new Date().toLocaleDateString("es-MX"),
+      daySessions: [],
+      selectedHistorySessionId: null,
       openingFund: 500,
       cashMovements: [],
       activeTab: "pos",
@@ -201,6 +206,10 @@ create policy "Acceso publico POS"
         showHomeStock: state.showHomeStock,
         products: state.products,
         orders: state.orders,
+        daySessions: state.daySessions,
+        dayActive: state.dayActive,
+        dayStartedAt: state.dayStartedAt,
+        dayStartedLabel: state.dayStartedLabel,
         cashMovements: state.cashMovements,
         inventoryLogs: state.inventoryLogs.slice(0, 120),
         liveLogs: state.liveLogs.slice(0, 60)
@@ -211,6 +220,10 @@ create policy "Acceso publico POS"
       if (!remote || typeof remote !== "object") return;
       if (Array.isArray(remote.products)) state.products = remote.products;
       if (Array.isArray(remote.orders)) state.orders = remote.orders;
+      if (Array.isArray(remote.daySessions)) state.daySessions = remote.daySessions;
+      if (typeof remote.dayActive === "boolean") state.dayActive = remote.dayActive;
+      if (remote.dayStartedAt) state.dayStartedAt = remote.dayStartedAt;
+      if (remote.dayStartedLabel) state.dayStartedLabel = remote.dayStartedLabel;
       if (Array.isArray(remote.cashMovements)) state.cashMovements = remote.cashMovements;
       if (Array.isArray(remote.inventoryLogs)) state.inventoryLogs = remote.inventoryLogs;
       if (Array.isArray(remote.liveLogs)) state.liveLogs = remote.liveLogs;
@@ -317,6 +330,11 @@ create policy "Acceso publico POS"
             toastMsg: "",
             cart: parsed.cart || [],
             cashMovements: parsed.cashMovements || [],
+            daySessions: parsed.daySessions || [],
+            dayActive: typeof parsed.dayActive === "boolean" ? parsed.dayActive : true,
+            dayStartedAt: parsed.dayStartedAt || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+            dayStartedLabel: parsed.dayStartedLabel || new Date().toLocaleDateString("es-MX"),
+            selectedHistorySessionId: parsed.selectedHistorySessionId || null,
             inventoryLogs: parsed.inventoryLogs || DEFAULT_STATE.inventoryLogs,
             liveLogs: parsed.liveLogs || DEFAULT_STATE.liveLogs
           });
@@ -408,8 +426,197 @@ create policy "Acceso publico POS"
       return JUE_DOM_DAYS.includes(dayName);
     }
 
+
+    function getAllHistoricalAndCurrentOrders() {
+      const archivedOrders = [];
+      (state.daySessions || []).forEach(sess => {
+        (sess.orders || []).forEach(o => {
+          archivedOrders.push(Object.assign({}, o, {
+            dayName: o.dayName || sess.dayName || WEEKDAY_NAMES[new Date().getDay()],
+            sessionDate: sess.dateLabel || o.date || ""
+          }));
+        });
+      });
+      return [...state.orders, ...archivedOrders];
+    }
+
+    function startNewDayAccount() {
+      const now = new Date();
+      const dayName = WEEKDAY_NAMES[now.getDay()];
+      const dateLabel = now.toLocaleDateString("es-MX");
+      const timeLabel = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+
+      // Si había órdenes pendientes de una sesión previa sin cerrar, las archivamos primero
+      if (state.orders.length > 0 && !state.dayActive) {
+        const salesSum = state.orders.filter(o => o.status !== "Cancelado").reduce((s, o) => s + Number(o.totalSale || 0), 0);
+        state.daySessions.unshift({
+          id: "DAY-" + Date.now(),
+          dateLabel: state.dayStartedLabel || dateLabel,
+          dayName: WEEKDAY_NAMES[now.getDay()],
+          openedAt: state.dayStartedAt || timeLabel,
+          closedAt: timeLabel,
+          ordersCount: state.orders.length,
+          totalSales: salesSum,
+          orders: JSON.parse(JSON.stringify(state.orders))
+        });
+        if (state.daySessions.length > 60) state.daySessions.pop();
+      }
+
+      state.dayActive = true;
+      state.cashOpen = true;
+      state.dayStartedAt = timeLabel;
+      state.dayStartedLabel = dateLabel;
+      state.orders = [];
+      state.lastTicket = null;
+      state.lastKitchenTicket = null;
+      state.inspectedOrderId = null;
+
+      addLiveLog(`Cuenta del día iniciada (${dayName} ${dateLabel} a las ${timeLabel}) — Comandas en 0`);
+      saveLocalOnly();
+      render();
+      showToast(`✓ Cuenta iniciada (${dayName})`);
+      if (hasCloud()) {
+        pushToCloud();
+      }
+    }
+
+    function closeCurrentDaySession() {
+      if (state.pendingPrintOrder) {
+        showToast("Termina las 2 impresiones antes de cerrar el día.");
+        return;
+      }
+      const now = new Date();
+      const dayName = WEEKDAY_NAMES[now.getDay()];
+      const dateLabel = state.dayStartedLabel || now.toLocaleDateString("es-MX");
+      const closedAt = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      const validOrders = state.orders.filter(o => o.status !== "Cancelado");
+      const totalSales = validOrders.reduce((s, o) => s + Number(o.totalSale || 0), 0);
+
+      const confirmMsg = `¿Cerrar y concluir el día (${dayName} ${dateLabel}) con ${state.orders.length} comanda(s) por ${fmt(totalSales)}? Las comandas quedarán guardadas en Días Anteriores y mañana/siguiente día iniciará limpio.`;
+      if (!confirm(confirmMsg)) return;
+
+      const newSession = {
+        id: "DAY-" + Date.now(),
+        dateLabel,
+        dayName: state.orders[0] && state.orders[0].dayName ? state.orders[0].dayName : dayName,
+        openedAt: state.dayStartedAt || closedAt,
+        closedAt,
+        ordersCount: state.orders.length,
+        totalSales,
+        orders: JSON.parse(JSON.stringify(state.orders))
+      };
+
+      state.daySessions.unshift(newSession);
+      if (state.daySessions.length > 60) state.daySessions.pop();
+      state.selectedHistorySessionId = newSession.id;
+
+      // Limpiamos comandas del día concluido para que el siguiente día inicie nuevo sin borrar manualmente
+      state.orders = [];
+      state.lastTicket = null;
+      state.lastKitchenTicket = null;
+      state.inspectedOrderId = null;
+      state.dayActive = false;
+
+      addLiveLog(`Día concluido (${newSession.dayName} ${dateLabel}) • ${newSession.ordersCount} comandas archivadas (${fmt(totalSales)})`);
+      saveLocalOnly();
+      render();
+      showToast("✓ Día cerrado y comandas guardadas en Días Anteriores");
+      if (hasCloud()) {
+        pushToCloud();
+      }
+    }
+
+    function reprintHistoricalOrder(sessionId, orderId) {
+      const sess = (state.daySessions || []).find(s => s.id === sessionId);
+      if (!sess) return;
+      const ord = (sess.orders || []).find(o => Number(o.id) === Number(orderId));
+      if (!ord) return;
+      state.lastKitchenTicket = ord;
+      state.lastTicket = ord;
+      state.inspectedOrderId = ord.id;
+      saveLocalOnly();
+      render();
+      if (btChar || btDevice) {
+        printBT(ord, true);
+      } else {
+        printKitchen58System(ord);
+      }
+    }
+
+    function renderPreviousDaysMonitoringCard() {
+      const sessions = state.daySessions || [];
+      if (sessions.length === 0) {
+        return `
+          <div class="bg-white p-5 rounded-2xl border space-y-2 text-xs">
+            <h3 class="font-black text-[#081736] text-sm sm:text-base">📅 Comandas de Días Anteriores (Monitoreo)</h3>
+            <p class="text-slate-400">Aún no hay días cerrados guardados. Cuando concluyas un día con <b>Cerrar Día</b>, aquí aparecerán sus comandas para monitoreo.</p>
+          </div>
+        `;
+      }
+
+      const activeSess = sessions.find(s => s.id === state.selectedHistorySessionId) || sessions[0];
+
+      return `
+        <div class="bg-white p-5 rounded-2xl border-2 border-[#081736] space-y-4 text-xs">
+          <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
+            <div>
+              <div class="text-[10px] font-bold uppercase text-amber-600">Auditoría y Monitoreo</div>
+              <h3 class="font-black text-[#081736] text-base">📅 Comandas de Días Anteriores</h3>
+              <p class="text-slate-500 text-[11px]">Selecciona un día cerrado para revisar o reimprimir las comandas de ese día.</p>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              ${sessions.map(s => `
+                <button type="button" data-sid="${esc(s.id)}" onclick="state.selectedHistorySessionId=this.dataset.sid;saveLocalOnly();render();"
+                  class="px-3 py-1.5 rounded-xl font-bold text-[11px] border ${activeSess.id === s.id ? "bg-[#081736] text-amber-400 border-[#081736]" : "bg-slate-50 text-slate-700 hover:border-amber-400"}">
+                  ${esc(s.dayName)} ${esc(s.dateLabel)} (${s.ordersCount} ord.)
+                </button>
+              `).join("")}
+            </div>
+          </div>
+
+          <div class="bg-slate-50 p-3.5 rounded-xl border flex flex-wrap justify-between items-center gap-2">
+            <div>
+              <span class="font-black text-[#081736] text-sm">Jornada: ${esc(activeSess.dayName)} ${esc(activeSess.dateLabel)}</span>
+              <span class="text-slate-500 ml-2">Inicio: <b>${esc(activeSess.openedAt)}</b> • Cierre: <b>${esc(activeSess.closedAt)}</b></span>
+            </div>
+            <div class="font-black text-emerald-700 text-sm">
+              Total del día: ${fmt(activeSess.totalSales)} (${activeSess.ordersCount} comandas)
+            </div>
+          </div>
+
+          ${(!activeSess.orders || activeSess.orders.length === 0)
+            ? `<p class="text-slate-400 py-3">No hubo comandas registradas en este día.</p>`
+            : `<div class="space-y-2">
+                ${activeSess.orders.map(o => `
+                  <div class="p-3 rounded-xl border bg-white flex flex-wrap justify-between items-start gap-2">
+                    <div class="space-y-1">
+                      <div class="flex flex-wrap items-center gap-2">
+                        <span class="font-black text-[#081736]">${esc(o.orderName)}</span>
+                        <span class="text-slate-400">#${o.id} • ${esc(o.time)} • ${esc(o.serviceType)}</span>
+                        <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${o.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">${esc(o.status || "Registrado")}</span>
+                        <span class="font-black text-slate-800">${fmt(o.totalSale)}</span>
+                      </div>
+                      <div class="text-slate-700 font-semibold">
+                        ${(o.items || []).map(i => `${i.qty}x ${esc(i.displayName)}${i.detail ? ` [${esc(i.detail)}]` : ""}`).join(" • ")}
+                      </div>
+                      ${o.note ? `<div class="text-[11px] text-amber-900 font-bold">Nota: ${esc(o.note)}</div>` : ""}
+                    </div>
+                    <div class="flex items-center gap-1.5">
+                      <button type="button" data-sid="${esc(activeSess.id)}" data-oid="${o.id}" onclick="reprintHistoricalOrder(this.dataset.sid, this.dataset.oid)"
+                        class="bg-amber-400 hover:bg-amber-300 text-[#081736] px-2.5 py-1.5 rounded-lg font-black text-[11px]">
+                        🖨️ Reimprimir
+                      </button>
+                    </div>
+                  </div>
+                `).join("")}
+              </div>`
+          }
+        </div>
+      `;
+    }
+
     function getCycleStats() {
-      const valid = state.orders.filter(o => o.status !== "Cancelado");
+      const valid = getAllHistoricalAndCurrentOrders().filter(o => o.status !== "Cancelado");
       const byDay = {};
       ["Jueves", "Viernes", "Sábado", "Domingo", "Lunes", "Martes", "Miércoles"].forEach(d => {
         byDay[d] = { day: d, ordersCount: 0, sales: 0, cost: 0, profit: 0, deliveredCount: 0 };
@@ -514,7 +721,7 @@ create policy "Acceso publico POS"
 
 
     function getProductSalesRanking() {
-      const valid = state.orders.filter(o => o.status !== "Cancelado");
+      const valid = getAllHistoricalAndCurrentOrders().filter(o => o.status !== "Cancelado");
       const map = new Map();
 
       state.products.forEach(p => {
@@ -643,7 +850,7 @@ create policy "Acceso publico POS"
     }
 
     function getFinancials() {
-      const valid = state.orders.filter(o => o.status !== "Cancelado");
+      const valid = getAllHistoricalAndCurrentOrders().filter(o => o.status !== "Cancelado");
       const sales = valid.reduce((s, o) => s + o.totalSale, 0);
       const cost = valid.reduce((s, o) => s + o.totalCost, 0);
       const grossProfit = sales - cost;
@@ -1990,6 +2197,11 @@ create policy "Acceso publico POS"
               </div>
             </div>
             <div class="flex flex-wrap items-center gap-2 text-xs">
+              <span class="px-2.5 py-1 rounded-lg font-bold ${state.dayActive ? "bg-emerald-500/20 text-emerald-200 border border-emerald-400/50" : "bg-slate-700 text-slate-300"}">
+                ${state.dayActive ? `🟢 Cuenta Activa (${esc(state.dayStartedAt)})` : "⚪ Día Cerrado"}
+              </span>
+              <button onclick="startNewDayAccount()" class="bg-emerald-500 hover:bg-emerald-400 text-slate-950 px-2.5 py-1 rounded-lg font-black">▶️ Iniciar Cuenta</button>
+              <button onclick="closeCurrentDaySession()" class="bg-rose-600 hover:bg-rose-500 text-white px-2.5 py-1 rounded-lg font-black">⏹️ Cerrar Día</button>
               <button onclick="setSellerMode()" class="px-2.5 py-1 rounded-lg font-bold ${!isAdmin ? "bg-emerald-400 text-slate-950" : "bg-white/10 text-white"}">Vendedor</button>
               <button onclick="openAuth(null)" class="px-2.5 py-1 rounded-lg font-bold ${isAdmin ? "bg-amber-400 text-[#081736]" : "bg-white/10 text-white"}">Admin</button>
               ${isAdmin ? `
@@ -2283,7 +2495,6 @@ create policy "Acceso publico POS"
                   </div>
                   <div class="flex flex-wrap items-center gap-1.5">
                     <button type="button" onclick="clearKitchenOrdersForNewDay(true)" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">Borrar Entregadas</button>
-                    <button type="button" onclick="clearKitchenOrdersForNewDay(false)" class="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">🗑️ Borrar Comandas / Nuevo Día</button>
                   </div>
                   <div class="flex items-center gap-2">
                     ${kitchenTarget ? `
@@ -2397,6 +2608,7 @@ create policy "Acceso publico POS"
                   </div>
                 ` : ""}
               </div>
+              ${renderPreviousDaysMonitoringCard()}
             </div>
           ` : ""}
 
