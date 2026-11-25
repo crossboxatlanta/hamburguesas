@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v22_cloud";
+    const STORAGE_KEY = "the_twins_pos_v24_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -1147,7 +1147,7 @@ create policy "Acceso publico POS"
       state.amountPaid = "";
       state.orderNote = "";
 
-      state.pendingPrintOrder = order;
+      state.pendingPrintOrder = null;
       state.printStepCustomerDone = false;
       state.printStepKitchenDone = false;
 
@@ -1218,6 +1218,22 @@ create policy "Acceso publico POS"
       addLiveLog(`Orden #${orderId} marcada como ENTREGADO`);
       saveState(true);
       render();
+    }
+
+
+    function reprintOrderSmart(orderId) {
+      const ord = state.orders.find(x => x.id === orderId) || (state.lastTicket && state.lastTicket.id === orderId ? state.lastTicket : null);
+      if (!ord) return;
+      state.lastKitchenTicket = ord;
+      state.lastTicket = ord;
+      state.inspectedOrderId = ord.id;
+      saveState(false);
+      render();
+      if (btChar || btDevice) {
+        printBT(ord, true);
+      } else {
+        printKitchen58System(ord);
+      }
     }
 
     function inspectOrder(orderId) {
@@ -2111,7 +2127,7 @@ create policy "Acceso publico POS"
                   </div>
                   ${state.paymentMethod === "Efectivo" && cartTotal > 0 ? `<div class="text-xs font-extrabold text-emerald-700">Cambio: ${fmt(changeNum)}</div>` : ""}
                   <input type="text" placeholder="Notas para cocina (ej. bien dorada, sin picante)..." value="${esc(state.orderNote)}" oninput="state.orderNote=this.value;" class="w-full border rounded-lg px-3 py-2 text-xs" />
-                  <button onclick="checkoutOrder()" class="w-full bg-[#081736] text-amber-400 font-black py-2.5 rounded-xl text-xs">COBRAR E IMPRIMIR (CLIENTE + COCINA)</button>
+                  <button onclick="checkoutOrder()" class="w-full bg-[#081736] text-amber-400 font-black py-2.5 rounded-xl text-xs">COBRAR ORDEN</button>
                 </div>
 
                 ${state.lastTicket ? `
@@ -2122,11 +2138,12 @@ create policy "Acceso publico POS"
                     </div>
                     <div class="text-[11px] text-slate-500">Bluetooth: <b>${esc(state.printerStatus)}</b></div>
                     <div class="grid grid-cols-2 gap-2 text-xs font-bold">
-                      <button onclick="printBT(state.lastTicket, false)" class="bg-blue-600 text-white py-2 rounded-lg">🔵 BT Ticket</button>
-                      <button onclick="printBT(state.lastTicket, true)" class="bg-indigo-700 text-white py-2 rounded-lg">🔵 BT Comanda</button>
+                      <button onclick="printBT(state.lastTicket, false)" class="bg-blue-600 text-white py-2 rounded-lg">🔵 Imprimir Ticket BT</button>
+                      <button onclick="printBT(state.lastTicket, true)" class="bg-indigo-700 text-white py-2 rounded-lg">🔵 Imprimir Comanda BT</button>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 text-xs font-bold">
+                    <div class="grid grid-cols-3 gap-2 text-xs font-bold">
                       <button onclick="printCustomer58System(state.lastTicket)" class="bg-[#081736] text-amber-400 py-2 rounded-lg">Ticket 58mm</button>
+                      <button onclick="printKitchen58System(state.lastTicket)" class="bg-slate-800 text-white py-2 rounded-lg">Comanda 58mm</button>
                       <button onclick="markOrderDelivered(state.lastTicket.id)" class="bg-teal-600 text-white py-2 rounded-lg">✓ Entregado</button>
                     </div>
                   </div>
@@ -2270,13 +2287,15 @@ create policy "Acceso publico POS"
 
                 ${!kitchenTarget ? `<p class="text-xs text-slate-400 py-8 text-center">Cobra una orden para generar su comanda de cocina.</p>` : `
                   ${isKitchenDelivered ? `
-                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 rounded-xl px-3.5 py-2 text-xs">
+                    <div class="mt-2.5 flex flex-wrap items-center justify-between gap-2 bg-emerald-50/90 border border-emerald-200 rounded-xl px-3 py-2 text-xs">
                       <div>
                         <span class="font-black text-[#081736]">${esc(kitchenTarget.orderName)}</span>
                         <span class="text-slate-500 ml-1">• Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
                         ${kitchenTarget.deliveredAt ? `<span class="text-emerald-700 font-bold ml-2">(Entregado ${kitchenTarget.deliveredAt})</span>` : ""}
                       </div>
-                      <button type="button" onclick="inspectOrder(${kitchenTarget.id})" class="bg-[#081736] text-amber-400 font-bold px-3 py-1 rounded-lg text-[11px]">Ver Detalle</button>
+                      <div class="flex items-center gap-1.5">
+                        <span class="text-[11px] text-slate-600 font-semibold">${kitchenTarget.items.map(i => `${i.qty}x ${esc(i.displayName)}`).join(", ")}</span>
+                      </div>
                     </div>
                   ` : `
                     <div class="mt-4 bg-slate-50 p-4 rounded-xl border space-y-2.5 text-sm">
@@ -2321,7 +2340,7 @@ create policy "Acceso publico POS"
                     ${state.orders.map(o => {
                       const done = o.status === "Entregado";
                       return `
-                        <div class="rounded-xl border transition-all ${done ? "p-2.5 bg-slate-50/80 border-slate-200" : "p-3.5 bg-white border-amber-300"}">
+                        <div onclick="openKitchenForOrderId(${o.id})" class="cursor-pointer rounded-xl border transition-all ${done ? "p-2 bg-slate-50/90 border-slate-200 hover:border-slate-400" : "p-3.5 bg-white border-amber-300 hover:border-amber-500"} ${kitchenTarget && kitchenTarget.id === o.id ? "ring-2 ring-[#081736]" : ""}">
                           <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
                             <div class="flex flex-wrap items-center gap-2">
                               <span class="font-black text-[#081736]">${esc(o.orderName)}</span>
@@ -2330,9 +2349,10 @@ create policy "Acceso publico POS"
                                 ${esc(o.status)}${o.deliveredAt ? ` (${o.deliveredAt})` : ""}
                               </span>
                             </div>
-                            <div class="flex flex-wrap items-center gap-1.5">
+                            <div onclick="event.stopPropagation();" class="flex flex-wrap items-center gap-1.5">
+                              <button type="button" onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded-lg font-bold text-[11px]">Seleccionar</button>
                               <button type="button" onclick="inspectOrder(${o.id})" class="bg-slate-800 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">Consultar</button>
-                              <button type="button" onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded-lg font-bold text-[11px]">Comanda</button>
+                              <button type="button" onclick="reprintOrderSmart(${o.id})" class="bg-amber-400 hover:bg-amber-300 text-[#081736] px-2.5 py-1 rounded-lg font-black text-[11px]">🖨️ Reimprimir</button>
                               ${!done ? `
                                 <button type="button" onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">✓ Entregado</button>
                               ` : ""}
@@ -2386,6 +2406,7 @@ create policy "Acceso publico POS"
                       <div class="flex flex-wrap gap-1.5">
                         <button onclick="markOrderDelivered(${o.id})" class="bg-emerald-700 text-white px-2.5 py-1 rounded font-bold">✓ Entregado</button>
                         <button onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded font-bold">Comanda</button>
+                        <button onclick="reprintOrderSmart(${o.id})" class="bg-amber-400 text-[#081736] px-2.5 py-1 rounded font-black">Reimprimir</button>
                         <button onclick="printCustomer58System(state.orders.find(function(x){return x.id===${o.id};}))" class="bg-slate-800 text-white px-2.5 py-1 rounded font-bold">Ticket</button>
                       </div>
                     </div>
