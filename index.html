@@ -33,15 +33,11 @@
   <div id="thermal-receipt-58mm" class="hidden print:block"></div>
 
   <script>
-    // =========================================================================
-    // CONFIGURACIÓN DE SUPABASE (URL de tu proyecto preconfigurada; pega tu
-    // Publishable key en la pestaña "☁️ Nube / Sincronizar" o aquí abajo)
-    // =========================================================================
     const PRESET_SUPABASE_URL = "https://trklrkfojohzezmzkhfu.supabase.co";
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v29_cloud";
+    const STORAGE_KEY = "the_twins_pos_v30_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -413,7 +409,6 @@ create policy "Acceso publico POS"
       if (state.inventoryLogs.length > 150) state.inventoryLogs.pop();
     }
 
-
     const WEEKDAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
     const JUE_DOM_DAYS = ["Jueves", "Viernes", "Sábado", "Domingo"];
 
@@ -425,7 +420,6 @@ create policy "Acceso publico POS"
     function isInThuSunCycle(dayName) {
       return JUE_DOM_DAYS.includes(dayName);
     }
-
 
     function getAllHistoricalAndCurrentOrders() {
       const archivedOrders = [];
@@ -446,7 +440,6 @@ create policy "Acceso publico POS"
       const dateLabel = now.toLocaleDateString("es-MX");
       const timeLabel = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 
-      // Si había órdenes pendientes de una sesión previa sin cerrar, las archivamos primero
       if (state.orders.length > 0 && !state.dayActive) {
         const salesSum = state.orders.filter(o => o.status !== "Cancelado").reduce((s, o) => s + Number(o.totalSale || 0), 0);
         state.daySessions.unshift({
@@ -510,7 +503,6 @@ create policy "Acceso publico POS"
       if (state.daySessions.length > 60) state.daySessions.pop();
       state.selectedHistorySessionId = newSession.id;
 
-      // Limpiamos comandas del día concluido para que el siguiente día inicie nuevo sin borrar manualmente
       state.orders = [];
       state.lastTicket = null;
       state.lastKitchenTicket = null;
@@ -719,7 +711,6 @@ create policy "Acceso publico POS"
       showToast("✓ Sueldo del domingo registrado en el corte");
     }
 
-
     function getProductSalesRanking() {
       const valid = getAllHistoricalAndCurrentOrders().filter(o => o.status !== "Cancelado");
       const map = new Map();
@@ -893,7 +884,6 @@ create policy "Acceso publico POS"
       }
     }
 
-
     function saveCloudPasswordConfig(e) {
       e.preventDefault();
       const f = e.target;
@@ -924,71 +914,6 @@ create policy "Acceso publico POS"
       cloudStatus = "Desconectado de la nube (modo local)";
       render();
       showToast("Clave borrada");
-    }
-
-    function buildOrderSummaryText(order) {
-      if (!order) return "";
-      let lines = [];
-      lines.push(`*${state.homeTitle.toUpperCase()}*`);
-      lines.push(`*Orden:* ${order.orderName} (#${order.id})`);
-      lines.push(`*Hora:* ${order.time} • *Servicio:* ${order.serviceType}`);
-      lines.push(`*Pago:* ${order.paymentMethod} • *Estado:* ${order.status || "En cocina"}`);
-      lines.push("--------------------------------");
-      order.items.forEach(i => {
-        lines.push(`• *${i.qty}x ${i.displayName}* — ${fmt(i.price * i.qty)}`);
-        if (i.detail) lines.push(`   _${i.detail}_`);
-      });
-      if (order.note) {
-        lines.push("--------------------------------");
-        lines.push(`*Nota:* ${order.note}`);
-      }
-      lines.push("--------------------------------");
-      lines.push(`*TOTAL: ${fmt(order.totalSale)}*`);
-      if (order.paymentMethod === "Efectivo") {
-        lines.push(`Recibido: ${fmt(order.paid)} | Cambio: ${fmt(order.change)}`);
-      }
-      return lines.join("\n");
-    }
-
-    function buildKitchenSummaryText(order) {
-      if (!order) return "";
-      let lines = [];
-      lines.push(`*COMANDA COCINA — ${state.homeTitle.toUpperCase()}*`);
-      lines.push(`*ORDEN:* ${order.orderName.toUpperCase()} (#${order.id})`);
-      lines.push(`*Hora:* ${order.time} • *Tipo:* ${order.serviceType}`);
-      lines.push("================================");
-      lines.push("*PREPARAR Y ENTREGAR:*");
-      order.items.forEach(i => {
-        lines.push(`[ ] *${i.qty}x ${i.displayName}*`);
-        if (i.detail) lines.push(`    -> ${i.detail}`);
-      });
-      if (order.note) {
-        lines.push("--------------------------------");
-        lines.push(`*INDICACIÓN:* ${order.note}`);
-      }
-      lines.push("================================");
-      return lines.join("\n");
-    }
-
-    async function copyTextToClipboard(text, label) {
-      if (!text) return;
-      try {
-        if (navigator.clipboard && navigator.clipboard.writeText) {
-          await navigator.clipboard.writeText(text);
-        } else {
-          const ta = document.createElement("textarea");
-          ta.value = text;
-          ta.style.position = "fixed";
-          ta.style.left = "-9999px";
-          document.body.appendChild(ta);
-          ta.select();
-          document.execCommand("copy");
-          document.body.removeChild(ta);
-        }
-        showToast(`✓ ${label} copiado`);
-      } catch (err) {
-        alert("No se pudo copiar automáticamente.");
-      }
     }
 
     function openAuth(tabKey) {
@@ -1363,49 +1288,6 @@ create policy "Acceso publico POS"
       render();
     }
 
-    async function runMandatoryStep1Customer(method) {
-      const ord = state.pendingPrintOrder;
-      if (!ord) return;
-
-      if (method === "bt") {
-        const ok = await sendTextBT(getCustomerReceiptText(ord), `1/2 Ticket Cliente ${ord.orderName} (#${ord.id})`, false);
-        if (!ok) return;
-      } else if (method === "rawbt") {
-        printRaw(ord, false);
-      } else {
-        printCustomer58System(ord);
-      }
-
-      state.printStepCustomerDone = true;
-      addLiveLog(`Paso 1/2 listo: Ticket Cliente impreso (#${ord.id})`);
-      saveState(false);
-      render();
-    }
-
-    async function runMandatoryStep2Kitchen(method) {
-      const ord = state.pendingPrintOrder;
-      if (!ord || !state.printStepCustomerDone) {
-        showToast("Primero debes imprimir el Ticket del Cliente (Paso 1).");
-        return;
-      }
-
-      if (method === "bt") {
-        const ok = await sendTextBT(getKitchenReceiptText(ord), `2/2 Comanda Cocina ${ord.orderName} (#${ord.id})`, false);
-        if (!ok) return;
-      } else if (method === "rawbt") {
-        printRaw(ord, true);
-      } else {
-        printKitchen58System(ord);
-      }
-
-      state.printStepKitchenDone = true;
-      state.pendingPrintOrder = null;
-      addLiveLog(`Paso 2/2 listo: Comanda Cocina impresa (#${ord.id})`);
-      showToast("✓ Ambos tickets impresos. Lista la siguiente orden.");
-      saveState(false);
-      render();
-    }
-
     function markOrderDelivered(orderId) {
       const targetId = Number(orderId);
       const ord = state.orders.find(o => Number(o.id) === targetId);
@@ -1450,17 +1332,6 @@ create policy "Acceso publico POS"
       } else {
         printKitchen58System(ord);
       }
-    }
-
-
-    function inspectOrder(orderId) {
-      state.inspectedOrderId = orderId;
-      const found = state.orders.find(o => o.id === orderId);
-      if (found) {
-        state.lastKitchenTicket = found;
-      }
-      saveState(false);
-      render();
     }
 
     function escPosInitAndAlign(alignCenter) {
@@ -2012,55 +1883,12 @@ create policy "Acceso publico POS"
       });
 
       const modalProd = state.optionModalProdId ? state.products.find(x => x.id === state.optionModalProdId) : null;
-      const kitchenTarget = state.lastKitchenTicket || state.lastTicket || (state.orders.length > 0 ? state.orders[0] : null);
-      const isKitchenDelivered = kitchenTarget && kitchenTarget.status === "Entregado";
-      const inspectedOrder = state.orders.find(o => o.id === state.inspectedOrderId) || kitchenTarget || null;
-      const pOrd = state.pendingPrintOrder;
 
       const app = document.getElementById("app");
       app.innerHTML = `
         ${state.toastMsg ? `
           <div class="fixed bottom-4 right-4 z-50 bg-[#081736] text-amber-400 border-2 border-amber-400 px-4 py-2.5 rounded-xl shadow-xl text-xs font-black">
             ${esc(state.toastMsg)}
-          </div>
-        ` : ""}
-
-        ${pOrd ? `
-          <div class="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4">
-            <div class="bg-white rounded-2xl max-w-md w-full p-5 space-y-4 border-4 border-amber-400 shadow-2xl">
-              <div class="border-b pb-3">
-                <div class="text-[11px] font-black uppercase text-rose-600">Impresión Obligatoria (2 Tickets)</div>
-                <h3 class="font-black text-[#081736] text-lg">${esc(pOrd.orderName)} (#${pOrd.id}) • ${fmt(pOrd.totalSale)}</h3>
-                <p class="text-xs text-slate-600 mt-0.5">Imprime primero el <b>Ticket del Cliente</b> y después la <b>Comanda de Cocina</b> para desbloquear la siguiente orden.</p>
-                <div class="text-[11px] text-slate-500 mt-1">Impresora: <b>${esc(state.printerStatus)}</b></div>
-              </div>
-
-              <div class="p-3.5 rounded-xl border-2 ${state.printStepCustomerDone ? "bg-emerald-50 border-emerald-400" : "bg-amber-50 border-amber-400"} space-y-2">
-                <div class="flex justify-between items-center text-xs font-black">
-                  <span class="text-[#081736]">PASO 1: Ticket del Cliente</span>
-                  <span class="${state.printStepCustomerDone ? "text-emerald-700" : "text-amber-800"}">
-                    ${state.printStepCustomerDone ? "✓ IMPRESO" : "PENDIENTE"}
-                  </span>
-                </div>
-                <div class="grid grid-cols-3 gap-2 text-xs font-bold">
-                  <button type="button" onclick="runMandatoryStep1Customer('bt')" class="bg-blue-600 hover:bg-blue-700 text-white py-2.5 rounded-xl">🔵 BT Cliente</button>
-                  <button type="button" onclick="runMandatoryStep1Customer('rawbt')" class="bg-amber-400 hover:bg-amber-500 text-[#081736] py-2.5 rounded-xl">RawBT Cliente</button>
-                  <button type="button" onclick="runMandatoryStep1Customer('58mm')" class="bg-[#081736] text-amber-400 py-2.5 rounded-xl">58mm Cliente</button>
-                </div>
-              </div>
-
-              <div class="p-3.5 rounded-xl border-2 ${!state.printStepCustomerDone ? "opacity-50 bg-slate-100 border-slate-300" : "bg-blue-50 border-blue-500"} space-y-2">
-                <div class="flex justify-between items-center text-xs font-black">
-                  <span class="text-[#081736]">PASO 2: Comanda de Cocina</span>
-                  <span class="text-slate-600">${!state.printStepCustomerDone ? "Bloqueado hasta Paso 1" : "LISTO PARA IMPRIMIR"}</span>
-                </div>
-                <div class="grid grid-cols-3 gap-2 text-xs font-bold">
-                  <button type="button" ${!state.printStepCustomerDone ? "disabled" : ""} onclick="runMandatoryStep2Kitchen('bt')" class="bg-emerald-600 disabled:bg-slate-300 text-white py-2.5 rounded-xl">🔵 BT Cocina</button>
-                  <button type="button" ${!state.printStepCustomerDone ? "disabled" : ""} onclick="runMandatoryStep2Kitchen('rawbt')" class="bg-amber-400 disabled:bg-slate-300 text-[#081736] py-2.5 rounded-xl">RawBT Cocina</button>
-                  <button type="button" ${!state.printStepCustomerDone ? "disabled" : ""} onclick="runMandatoryStep2Kitchen('58mm')" class="bg-[#081736] disabled:bg-slate-300 text-amber-400 py-2.5 rounded-xl">58mm Cocina</button>
-                </div>
-              </div>
-            </div>
           </div>
         ` : ""}
 
@@ -2487,126 +2315,50 @@ create policy "Acceso publico POS"
 
           ${state.activeTab === "kitchen" ? `
             <div class="space-y-5 max-w-4xl mx-auto">
-              <div class="bg-white rounded-2xl border-2 border-[#081736] shadow-sm overflow-hidden transition-all ${isKitchenDelivered ? "p-3.5 bg-slate-50/90" : "p-6"}">
+              <div class="bg-white p-5 rounded-2xl border-2 border-[#081736] space-y-4">
                 <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
                   <div>
-                    <div class="text-[10px] font-bold uppercase text-amber-600">Preparación y Entrega • Hoy: ${WEEKDAY_NAMES[new Date().getDay()]}</div>
-                    <h2 class="font-black text-[#081736] ${isKitchenDelivered ? "text-sm" : "text-lg"}">Comanda de Cocina</h2>
+                    <div class="text-[10px] font-bold uppercase text-amber-600">Comandas del Día • Hoy: ${WEEKDAY_NAMES[new Date().getDay()]}</div>
+                    <h2 class="font-black text-[#081736] text-base sm:text-lg">Comandas y Reimpresión de Ticket</h2>
+                    <p class="text-[11px] text-slate-500">Una sola vista por orden para marcar entregado o reimprimir sin duplicar información.</p>
                   </div>
                   <div class="flex flex-wrap items-center gap-1.5">
-                    <button type="button" onclick="clearKitchenOrdersForNewDay(true)" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">Borrar Entregadas</button>
-                  </div>
-                  <div class="flex items-center gap-2">
-                    ${kitchenTarget ? `
-                      <span class="text-xs font-black bg-amber-100 text-[#081736] px-3 py-1 rounded-lg">${esc(kitchenTarget.orderName)}</span>
-                      <span class="text-xs font-extrabold px-2.5 py-1 rounded-full ${isKitchenDelivered ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
-                        ${esc(kitchenTarget.status || "En cocina")}
-                      </span>
-                    ` : ""}
+                    <button type="button" onclick="clearKitchenOrdersForNewDay(true)" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-3 py-1.5 rounded-lg font-bold text-xs">Borrar Entregadas</button>
                   </div>
                 </div>
 
-                ${!kitchenTarget ? `<p class="text-xs text-slate-400 py-8 text-center">Cobra una orden para generar su comanda de cocina.</p>` : `
-                  ${isKitchenDelivered ? `
-                    <div class="mt-3 flex flex-wrap items-center justify-between gap-2 bg-emerald-50/80 border border-emerald-200 rounded-xl px-3.5 py-2 text-xs">
-                      <div>
-                        <span class="font-black text-[#081736]">${esc(kitchenTarget.orderName)}</span>
-                        <span class="text-slate-500 ml-1">• Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
-                        ${kitchenTarget.deliveredAt ? `<span class="text-emerald-700 font-bold ml-2">(Entregado ${kitchenTarget.deliveredAt})</span>` : ""}
-                      </div>
-                      <button type="button" onclick="inspectOrder(${kitchenTarget.id})" class="bg-[#081736] text-amber-400 font-bold px-3 py-1 rounded-lg text-[11px]">Ver Detalle</button>
-                    </div>
-                  ` : `
-                    <div class="mt-4 bg-slate-50 p-4 rounded-xl border space-y-2.5 text-sm">
-                      <div class="flex flex-wrap justify-between gap-2 font-bold text-slate-700 text-xs">
-                        <span>Orden: <b class="text-[#081736] text-sm">${esc(kitchenTarget.orderName)}</b></span>
-                        <span>Folio #${kitchenTarget.id} • ${kitchenTarget.time}</span>
-                      </div>
-                      <div class="text-xs text-slate-600">Servicio: <b>${esc(kitchenTarget.serviceType)}</b></div>
-                      <div class="divide-y divide-slate-200 pt-2">
-                        ${kitchenTarget.items.map(i => `
-                          <div class="py-2.5">
-                            <div class="font-black text-sm text-slate-900">• ${i.qty}x ${esc(i.displayName)}</div>
-                            ${i.detail ? `<div class="text-xs font-bold text-amber-800 ml-3 mt-0.5">→ ${esc(i.detail)}</div>` : ""}
-                          </div>
-                        `).join("")}
-                      </div>
-                      ${kitchenTarget.note ? `<div class="p-2.5 rounded-lg bg-amber-100 text-amber-950 font-bold text-xs">Nota: ${esc(kitchenTarget.note)}</div>` : ""}
-                    </div>
-                  `}
-
-                  <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-2 text-xs font-bold">
-                    <button type="button" onclick="printKitchen58System(kitchenTarget)" class="bg-[#081736] text-amber-400 py-2.5 px-3 rounded-xl">Imprimir Comanda 58mm</button>
-                    <button type="button" onclick="printBT(kitchenTarget, true)" class="bg-blue-600 text-white py-2.5 px-3 rounded-xl">BT Directo Cocina</button>
-                    <button type="button" onclick="printRaw(kitchenTarget, true)" class="bg-amber-400 text-[#081736] py-2.5 px-3 rounded-xl">RawBT Cocina</button>
-                    <button type="button" onclick="markOrderDelivered(kitchenTarget.id)" class="py-2.5 px-3 rounded-xl font-black ${isKitchenDelivered ? "bg-emerald-100 text-emerald-800 border border-emerald-300" : "bg-emerald-600 hover:bg-emerald-700 text-white"}">
-                      ${isKitchenDelivered ? "✓ Entregado" : "✓ Marcar Entregado"}
-                    </button>
-                  </div>
-                `}
-              </div>
-
-              <div class="bg-white p-5 rounded-2xl border space-y-3">
-                <div class="flex flex-wrap justify-between items-center gap-2">
-                  <div>
-                    <h3 class="font-black text-[#081736] text-sm sm:text-base">Historial de Pedidos (Activos y Entregados)</h3>
-                    <p class="text-[11px] text-slate-500">Sincronizado entre tu PC y tus celulares para revisar pedidos entregados.</p>
-                  </div>
-                </div>
-
-                ${state.orders.length === 0 ? `<p class="text-xs text-slate-400 py-4">Aún no hay pedidos registrados.</p>` : `
-                  <div class="space-y-2">
-                    ${state.orders.map(o => {
-                      const done = o.status === "Entregado";
-                      return `
-                        <div class="rounded-xl border transition-all ${done ? "p-2.5 bg-slate-50/80 border-slate-200" : "p-3.5 bg-white border-amber-300"}">
-                          <div class="flex flex-wrap items-center justify-between gap-2 text-xs">
-                            <div class="flex flex-wrap items-center gap-2">
-                              <span class="font-black text-[#081736]">${esc(o.orderName)}</span>
-                              <span class="text-slate-400">#${o.id} • ${o.time}</span>
-                              <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${done ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
-                                ${esc(o.status)}${o.deliveredAt ? ` (${o.deliveredAt})` : ""}
-                              </span>
+                ${state.orders.length === 0
+                  ? `<p class="text-xs text-slate-400 py-6 text-center">No hay comandas registradas en este momento.</p>`
+                  : `<div class="space-y-2.5">
+                      ${state.orders.map(o => {
+                        const done = o.status === "Entregado";
+                        return `
+                          <div class="p-3.5 rounded-xl border text-xs transition-all ${done ? "bg-slate-50 border-slate-200" : "bg-white border-amber-300"}">
+                            <div class="flex flex-wrap justify-between items-center gap-2">
+                              <div class="flex flex-wrap items-center gap-2">
+                                <span class="font-black text-[#081736] text-sm">${esc(o.orderName)}</span>
+                                <span class="text-slate-400">#${o.id} • ${esc(o.time)} • ${esc(o.serviceType)} • <b>${fmt(o.totalSale)}</b></span>
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${done ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
+                                  ${esc(o.status)}${o.deliveredAt ? ` (${esc(o.deliveredAt)})` : ""}
+                                </span>
+                              </div>
+                              <div class="flex flex-wrap items-center gap-1.5">
+                                <button type="button" onclick="reprintOrderSmart(${o.id})" class="bg-amber-400 hover:bg-amber-300 text-[#081736] px-3 py-1.5 rounded-lg font-black text-[11px]">🖨️ Reimprimir Comanda</button>
+                                <button type="button" onclick="printCustomer58System(state.orders.find(function(x){return Number(x.id)===${o.id};}))" class="bg-[#081736] text-amber-400 px-3 py-1.5 rounded-lg font-bold text-[11px]">🧾 Reimprimir Ticket</button>
+                                ${!done ? `<button type="button" onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-bold text-[11px]">✓ Entregado</button>` : ""}
+                              </div>
                             </div>
-                            <div onclick="event.stopPropagation();" class="flex flex-wrap items-center gap-1.5">
-                              <button type="button" onclick="openKitchenForOrderId(${o.id})" class="bg-[#081736] text-amber-400 px-2.5 py-1 rounded-lg font-bold text-[11px]">Seleccionar</button>
-                              <button type="button" onclick="inspectOrder(${o.id})" class="bg-slate-800 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">Consultar</button>
-                              <button type="button" onclick="reprintOrderSmart(${o.id})" class="bg-amber-400 hover:bg-amber-300 text-[#081736] px-2.5 py-1 rounded-lg font-black text-[11px]">🖨️ Reimprimir</button>
-                              ${!done ? `
-                                <button type="button" onclick="markOrderDelivered(${o.id})" class="bg-emerald-600 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">✓ Entregado</button>
-                              ` : ""}
+                            <div class="mt-2 pt-2 border-t border-slate-100 text-slate-700 font-semibold space-y-0.5">
+                              ${(o.items || []).map(i => `
+                                <div>• ${i.qty}x ${esc(i.displayName)} ${i.detail ? `<span class="text-amber-900 font-normal">(${esc(i.detail)})</span>` : ""}</div>
+                              `).join("")}
+                              ${o.note ? `<div class="text-[11px] text-amber-950 font-bold mt-1">Nota: ${esc(o.note)}</div>` : ""}
                             </div>
                           </div>
-                          ${!done ? `
-                            <div class="mt-1.5 text-xs text-slate-700 font-semibold">
-                              ${o.items.map(i => `${i.qty}x ${esc(i.displayName)}${i.detail ? ` [${esc(i.detail)}]` : ""}`).join(" • ")}
-                            </div>
-                          ` : ""}
-                        </div>
-                      `;
-                    }).join("")}
-                  </div>
-                `}
-
-                ${inspectedOrder ? `
-                  <div class="mt-3 p-4 rounded-xl bg-amber-50/60 border border-amber-300 text-xs space-y-2">
-                    <div class="flex flex-wrap justify-between items-center gap-2 border-b border-amber-200 pb-2">
-                      <div>
-                        <span class="font-black text-[#081736] text-sm">Detalle del Pedido: ${esc(inspectedOrder.orderName)} (#${inspectedOrder.id})</span>
-                        <span class="text-slate-500 ml-2">Hora: ${inspectedOrder.time} • Pago: ${esc(inspectedOrder.paymentMethod)} • Total: <b>${fmt(inspectedOrder.totalSale)}</b></span>
-                      </div>
-                      <span class="px-2.5 py-0.5 rounded-full text-[11px] font-extrabold ${inspectedOrder.status === "Entregado" ? "bg-emerald-100 text-emerald-800" : "bg-amber-100 text-amber-900"}">
-                        ${esc(inspectedOrder.status)}${inspectedOrder.deliveredAt ? ` • Entregado ${inspectedOrder.deliveredAt}` : ""}
-                      </span>
-                    </div>
-                    <div class="space-y-1">
-                      ${inspectedOrder.items.map(i => `
-                        <div class="font-bold text-slate-800">• ${i.qty}x ${esc(i.displayName)} ${i.detail ? `<span class="text-amber-900 font-semibold">(${esc(i.detail)})</span>` : ""} — <span>${fmt(i.price * i.qty)}</span></div>
-                      `).join("")}
-                    </div>
-                    ${inspectedOrder.note ? `<div class="text-amber-950 font-bold">Nota: ${esc(inspectedOrder.note)}</div>` : ""}
-                  </div>
-                ` : ""}
+                        `;
+                      }).join("")}
+                    </div>`
+                }
               </div>
               ${renderPreviousDaysMonitoringCard()}
             </div>
@@ -2644,7 +2396,6 @@ create policy "Acceso publico POS"
               ${renderSalesByDayAndProductsCard()}
             </div>
           ` : ""}
-
 
           ${state.activeTab === "inventory" && isAdmin ? `
             <div class="space-y-4">
@@ -2733,77 +2484,4 @@ create policy "Acceso publico POS"
                     <div class="font-black text-purple-950">Pago Rápido de Sueldos del Domingo (al Corte)</div>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input name="pConcept" placeholder="Ej. Sueldos Domingo (cocina/barra)" class="sm:col-span-2 border rounded-lg px-2.5 py-1.5 bg-white font-semibold" />
-                      <div class="flex gap-1.5">
-                        <input name="pAmount" type="number" step="0.01" required placeholder="Monto $" class="w-full border rounded-lg px-2 py-1.5 bg-white font-bold" />
-                        <button type="submit" class="bg-purple-800 hover:bg-purple-900 text-white font-black px-3 rounded-lg">Pagar</button>
-                      </div>
-                    </div>
-                  </form>
-                </div>
-
-                <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-3 text-xs">
-                  <h3 class="font-black text-[#081736] text-base">Registrar Gastos y Sueldos</h3>
-                  <form onsubmit="createMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                    <select name="mCat" class="border rounded-lg px-2 py-2 font-bold">
-                      <option>Sueldos / Nómina</option>
-                      <option>Gasto Operativo / Insumos</option>
-                      <option>Servicios / Renta</option>
-                      <option>Ingreso Adicional</option>
-                    </select>
-                    <input name="mConcept" required placeholder="Concepto / Empleado" class="border rounded-lg px-2.5 py-2" />
-                    <div class="flex gap-1.5">
-                      <input name="mAmount" type="number" step="0.01" required placeholder="$" class="w-full border rounded-lg px-2 py-2" />
-                      <button type="submit" class="bg-[#081736] text-amber-400 font-black px-3 rounded-lg">+</button>
-                    </div>
-                    <label class="sm:col-span-3 flex items-center gap-1.5"><input name="mDrawer" type="checkbox" checked /> Afecta caja física</label>
-                  </form>
-                  <div class="divide-y max-h-56 overflow-y-auto">
-                    ${state.cashMovements.map(m => `
-                      <div class="py-2 flex justify-between items-center">
-                        <span><b>${esc(m.category)}</b> (${esc(m.dayName || "")}): ${esc(m.concept)}</span>
-                        <span class="font-bold">${fmt(m.amount)}</span>
-                      </div>
-                    `).join("")}
-                  </div>
-                </div>
-              </div>
-            </div>
-            ${renderSalesByDayAndProductsCard()}
-            `;
-          })() : ""}
-
-          ${state.activeTab === "printer" ? `
-            <div class="bg-white p-5 rounded-2xl border max-w-2xl mx-auto space-y-4 text-xs">
-              <div class="flex flex-wrap justify-between items-center gap-2">
-                <div>
-                  <h2 class="font-black text-[#081736] text-base">Impresora Bluetooth 58mm (Comanda y Ticket)</h2>
-                  <div class="text-slate-500">Estado: <b>${esc(state.printerStatus)}</b></div>
-                </div>
-                <button onclick="connectBT()" class="bg-blue-600 text-white font-bold px-4 py-2 rounded-xl">🔗 Vincular Impresora BT</button>
-              </div>
-
-              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-bold">
-                <button onclick="printBT(getSample(), true)" class="bg-emerald-600 text-white py-2.5 rounded-xl">🔵 Enviar Comanda Cocina por BT</button>
-                <button onclick="printBT(getSample(), false)" class="bg-blue-600 text-white py-2.5 rounded-xl">🔵 Enviar Ticket Cliente por BT</button>
-                <button onclick="printRaw(getSample(), true)" class="bg-amber-400 text-[#081736] py-2.5 rounded-xl">RawBT Cocina (Android)</button>
-                <button onclick="printCustomer58System(getSample())" class="bg-[#081736] text-white py-2.5 rounded-xl">Imprimir Prueba 58mm</button>
-              </div>
-            </div>
-          ` : ""}
-        </main>
-      `;
-    }
-
-    render();
-
-    if (hasCloud()) {
-      pullFromCloud(true);
-    }
-    setInterval(() => {
-      if (hasCloud()) {
-        pullFromCloud(false);
-      }
-    }, 3500);
-  </script>
-</body>
-</html>
+                      <div class="flex gap-
