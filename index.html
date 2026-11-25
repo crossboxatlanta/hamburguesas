@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v19_cloud";
+    const STORAGE_KEY = "the_twins_pos_v20_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -504,6 +504,136 @@ create policy "Acceso publico POS"
       saveState(true);
       render();
       showToast("✓ Sueldo del domingo registrado en el corte");
+    }
+
+
+    function getProductSalesRanking() {
+      const valid = state.orders.filter(o => o.status !== "Cancelado");
+      const map = new Map();
+
+      state.products.forEach(p => {
+        map.set(p.baseName || p.name, {
+          name: p.name,
+          category: p.category || "General",
+          unitsSold: 0,
+          revenue: 0,
+          cost: 0,
+          profit: 0
+        });
+      });
+
+      valid.forEach(o => {
+        (o.items || []).forEach(it => {
+          const key = it.baseName || it.displayName;
+          const qty = Number(it.qty || 0);
+          const price = Number(it.price || 0);
+          const cost = Number(it.costPrice || 0);
+          const lineRev = price * qty;
+          const lineCost = cost * qty;
+
+          if (!map.has(key)) {
+            map.set(key, {
+              name: key,
+              category: "Menú",
+              unitsSold: 0,
+              revenue: 0,
+              cost: 0,
+              profit: 0
+            });
+          }
+          const entry = map.get(key);
+          entry.unitsSold += qty;
+          entry.revenue += lineRev;
+          entry.cost += lineCost;
+          entry.profit += (lineRev - lineCost);
+        });
+      });
+
+      const all = Array.from(map.values());
+      const mostSold = [...all].sort((a, b) => (b.unitsSold - a.unitsSold) || (b.revenue - a.revenue));
+      const leastSold = [...all].sort((a, b) => (a.unitsSold - b.unitsSold) || (a.revenue - b.revenue));
+
+      return {
+        all,
+        mostSold,
+        leastSold
+      };
+    }
+
+    function renderSalesByDayAndProductsCard() {
+      const cyc = getCycleStats();
+      const rank = getProductSalesRanking();
+      const top5 = rank.mostSold.slice(0, 5);
+      const bottom5 = rank.leastSold.slice(0, 5);
+      const daysOrder = ["Jueves", "Viernes", "Sábado", "Domingo", "Lunes", "Martes", "Miércoles"];
+
+      return `
+        <div class="bg-white p-5 rounded-2xl border-2 border-[#081736] space-y-5 text-xs">
+          <div>
+            <div class="text-[10px] font-bold uppercase text-amber-600">Análisis de Ventas y Rotación</div>
+            <h3 class="font-black text-[#081736] text-base">Venta por Día y Productos Más / Menos Vendidos</h3>
+            <p class="text-slate-500 text-[11px]">Revisa cuánto se vende cada día y qué productos tienen mayor o menor salida en las órdenes registradas.</p>
+          </div>
+
+          <div class="space-y-2">
+            <div class="font-black text-[#081736] text-xs">Venta por Día</div>
+            <div class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2">
+              ${daysOrder.map(d => {
+                const st = cyc.byDay[d] || { day: d, ordersCount: 0, sales: 0, profit: 0 };
+                const isHighlight = JUE_DOM_DAYS.includes(d);
+                return `
+                  <div class="p-3 rounded-xl border ${isHighlight ? "bg-amber-50/70 border-amber-300" : "bg-slate-50 border-slate-200"}">
+                    <div class="flex justify-between items-center font-black text-[#081736]">
+                      <span>${esc(d)}</span>
+                      <span class="text-[10px] bg-white border px-1.5 py-0.5 rounded">${st.ordersCount} ord.</span>
+                    </div>
+                    <div class="text-sm font-black text-slate-900 mt-1">${fmt(st.sales)}</div>
+                    <div class="text-[10px] font-bold text-emerald-700">Ganancia: ${fmt(st.profit)}</div>
+                  </div>
+                `;
+              }).join("")}
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+            <div class="p-3.5 rounded-xl border border-emerald-200 bg-emerald-50/40 space-y-2">
+              <div class="font-black text-emerald-900 text-xs">🔥 Productos Más Vendidos</div>
+              <div class="divide-y divide-emerald-100">
+                ${top5.map((p, i) => `
+                  <div class="py-1.5 flex justify-between items-center gap-2">
+                    <div>
+                      <span class="font-black text-emerald-950">#${i + 1} ${esc(p.name)}</span>
+                      <span class="text-[10px] text-slate-500 ml-1">(${esc(p.category)})</span>
+                    </div>
+                    <div class="text-right font-extrabold">
+                      <span class="bg-emerald-600 text-white px-2 py-0.5 rounded-full text-[10px]">${p.unitsSold} uds</span>
+                      <span class="text-slate-800 ml-1.5">${fmt(p.revenue)}</span>
+                    </div>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+
+            <div class="p-3.5 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2">
+              <div class="font-black text-amber-950 text-xs">🐢 Productos Menos Vendidos</div>
+              <div class="divide-y divide-amber-100">
+                ${bottom5.map((p, i) => `
+                  <div class="py-1.5 flex justify-between items-center gap-2">
+                    <div>
+                      <span class="font-black text-slate-900">#${i + 1} ${esc(p.name)}</span>
+                      <span class="text-[10px] text-slate-500 ml-1">(${esc(p.category)})</span>
+                    </div>
+                    <div class="text-right font-extrabold">
+                      <span class="bg-slate-200 text-slate-800 px-2 py-0.5 rounded-full text-[10px]">${p.unitsSold} uds</span>
+                      <span class="text-slate-700 ml-1.5">${fmt(p.revenue)}</span>
+                    </div>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
     }
 
     function getFinancials() {
@@ -2172,6 +2302,7 @@ create policy "Acceso publico POS"
           ` : ""}
 
           ${state.activeTab === "live" ? `
+            ${renderSalesByDayAndProductsCard()}
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-2.5">
                 <h2 class="font-black text-[#081736] text-base">Órdenes en Tiempo Real</h2>
@@ -2319,6 +2450,7 @@ create policy "Acceso publico POS"
                 </div>
               </div>
             </div>
+            ${renderSalesByDayAndProductsCard()}
             `;
           })() : ""}
 
