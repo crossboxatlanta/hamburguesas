@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v20_cloud";
+    const STORAGE_KEY = "the_twins_pos_v22_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -67,6 +67,8 @@ create policy "Acceso publico POS"
     const DEFAULT_STATE = {
       role: "seller",
       adminPassword: "twins2026",
+      cloudPassword: "",
+      cloudUnlocked: false,
       showAuthModal: false,
       showChangePassModal: false,
       authError: "",
@@ -192,6 +194,7 @@ create policy "Acceso publico POS"
       return {
         lastUpdatedTs: state.lastUpdatedTs || Date.now(),
         adminPassword: state.adminPassword,
+        cloudPassword: state.cloudPassword,
         homeTitle: state.homeTitle,
         homeSubtitle: state.homeSubtitle,
         showHomeDesc: state.showHomeDesc,
@@ -212,6 +215,7 @@ create policy "Acceso publico POS"
       if (Array.isArray(remote.inventoryLogs)) state.inventoryLogs = remote.inventoryLogs;
       if (Array.isArray(remote.liveLogs)) state.liveLogs = remote.liveLogs;
       if (remote.adminPassword) state.adminPassword = remote.adminPassword;
+      if (typeof remote.cloudPassword === "string") state.cloudPassword = remote.cloudPassword;
       if (remote.homeTitle) state.homeTitle = remote.homeTitle;
       if (remote.homeSubtitle) state.homeSubtitle = remote.homeSubtitle;
       if (typeof remote.showHomeDesc === "boolean") state.showHomeDesc = remote.showHomeDesc;
@@ -306,6 +310,7 @@ create policy "Acceso publico POS"
           return Object.assign({}, DEFAULT_STATE, parsed, {
             showAuthModal: false,
             showChangePassModal: false,
+            cloudUnlocked: false,
             optionModalProdId: null,
             authError: "",
             pendingTab: null,
@@ -325,6 +330,7 @@ create policy "Acceso publico POS"
         const copy = Object.assign({}, state, {
           showAuthModal: false,
           showChangePassModal: false,
+          cloudUnlocked: false,
           optionModalProdId: null,
           authError: "",
           pendingTab: null,
@@ -680,6 +686,32 @@ create policy "Acceso publico POS"
       }
     }
 
+
+    function saveCloudPasswordConfig(e) {
+      e.preventDefault();
+      const f = e.target;
+      const np = (f.cPass.value || "").trim();
+      if (np.length < 4) {
+        alert("La contraseña de la nube debe tener al menos 4 caracteres.");
+        return;
+      }
+      state.cloudPassword = np;
+      addLiveLog("Contraseña de Nube / Sincronizar actualizada");
+      saveState(true);
+      render();
+      showToast("✓ Contraseña de nube guardada y sincronizada");
+    }
+
+    function lockCloudTab() {
+      state.cloudUnlocked = false;
+      if (state.role !== "admin") {
+        state.activeTab = "pos";
+      }
+      saveState(false);
+      render();
+      showToast("🔒 Nube bloqueada");
+    }
+
     function clearCloudCfg() {
       saveCloudCfg(PRESET_SUPABASE_URL, "");
       cloudStatus = "Desconectado de la nube (modo local)";
@@ -774,8 +806,30 @@ create policy "Acceso publico POS"
       e.preventDefault();
       const el = document.getElementById("passInput");
       const val = el ? el.value : "";
+      const validCloudPass = state.cloudPassword && state.cloudPassword.trim().length > 0
+        ? state.cloudPassword.trim()
+        : state.adminPassword;
+
+      if (state.pendingTab === "cloud") {
+        if (val === validCloudPass || val === state.adminPassword) {
+          state.cloudUnlocked = true;
+          state.showAuthModal = false;
+          state.authError = "";
+          state.activeTab = "cloud";
+          state.pendingTab = null;
+          addLiveLog("Acceso a Nube / Sincronizar autorizado");
+          saveState(false);
+          render();
+        } else {
+          state.authError = "Contraseña de nube incorrecta.";
+          render();
+        }
+        return;
+      }
+
       if (val === state.adminPassword) {
         state.role = "admin";
+        state.cloudUnlocked = true;
         state.showAuthModal = false;
         state.authError = "";
         if (state.pendingTab) {
@@ -793,7 +847,7 @@ create policy "Acceso publico POS"
 
     function setSellerMode() {
       state.role = "seller";
-      if (state.activeTab === "inventory" || state.activeTab === "cash" || state.activeTab === "homesetup") {
+      if (state.activeTab === "inventory" || state.activeTab === "cash" || state.activeTab === "homesetup" || state.activeTab === "analytics") {
         state.activeTab = "pos";
       }
       saveState(false);
@@ -848,7 +902,11 @@ create policy "Acceso publico POS"
         showToast("Primero imprime el ticket del cliente y después la comanda de cocina.");
         return;
       }
-      const adminOnly = ["inventory", "cash", "homesetup"];
+      if (tabKey === "cloud" && !state.cloudUnlocked && state.role !== "admin") {
+        openAuth("cloud");
+        return;
+      }
+      const adminOnly = ["inventory", "cash", "homesetup", "analytics"];
       if (adminOnly.includes(tabKey) && state.role !== "admin") {
         openAuth(tabKey);
         return;
@@ -1776,7 +1834,7 @@ create policy "Acceso publico POS"
         ${state.showAuthModal ? `
           <div class="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4">
             <form onsubmit="handleAuthSubmit(event)" class="bg-white rounded-2xl max-w-sm w-full p-5 space-y-3 border-2 border-amber-400">
-              <h3 class="font-black text-[#081736] text-base">Acceso Administrador</h3>
+              <h3 class="font-black text-[#081736] text-base">${state.pendingTab === "cloud" ? "Contraseña de Nube / Sincronizar" : "Acceso Administrador"}</h3>
               <input id="passInput" type="password" required placeholder="Contraseña" class="w-full border rounded-xl px-3 py-2 text-sm font-bold" />
               <p class="text-[11px] text-slate-400">Inicial: <b>twins2026</b></p>
               ${state.authError ? `<div class="text-xs text-rose-600 font-bold">${esc(state.authError)}</div>` : ""}
@@ -1917,9 +1975,10 @@ create policy "Acceso publico POS"
             <div class="max-w-7xl mx-auto flex gap-2 text-xs font-bold">
               <button onclick="goTab('pos')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "pos" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🍔 Pedido</button>
               <button onclick="goTab('kitchen')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "kitchen" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">👨‍🍳 Comanda Cocina</button>
-              <button onclick="goTab('cloud')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cloud" ? "bg-amber-400 text-[#081736]" : "text-emerald-300 hover:bg-white/10"}">☁️ Nube / Sincronizar</button>
+              <button onclick="goTab('cloud')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cloud" ? "bg-amber-400 text-[#081736]" : "text-emerald-300 hover:bg-white/10"}">☁️ Nube / Sincronizar ${(state.cloudUnlocked || isAdmin) ? "" : "🔒"}</button>
               <button onclick="goTab('homesetup')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "homesetup" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">🎨 Pantalla Principal ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('live')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "live" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📡 En Vivo</button>
+              <button onclick="goTab('analytics')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "analytics" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📈 Rotación y Ventas ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('inventory')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "inventory" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📦 Inventario ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('cash')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cash" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">💰 Corte y Sueldos Jue–Dom ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('printer')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "printer" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🖨️ Bluetooth 58mm</button>
@@ -2115,6 +2174,18 @@ create policy "Acceso publico POS"
                   <button type="button" onclick="pullFromCloud(true)" class="bg-emerald-600 text-white font-bold py-2.5 px-3 rounded-xl">↻ Sincronizar Ahora</button>
                   ${hasCloud() ? `<button type="button" onclick="clearCloudCfg()" class="bg-rose-100 text-rose-700 font-bold py-2.5 px-3 rounded-xl">Borrar Clave</button>` : ""}
                 </div>
+
+                <div class="pt-3 border-t space-y-2">
+                  <div class="flex justify-between items-center">
+                    <span class="font-black text-[#081736]">🔐 Contraseña de la Nube</span>
+                    <button type="button" onclick="lockCloudTab()" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">🔒 Bloquear Nube</button>
+                  </div>
+                  <p class="text-[11px] text-slate-500">Si no defines una distinta, se usa la clave Admin (<b>${esc(state.adminPassword)}</b>). Actual: <b>${esc(state.cloudPassword || state.adminPassword)}</b></p>
+                  <form onsubmit="saveCloudPasswordConfig(event)" class="flex gap-2">
+                    <input name="cPass" type="password" minlength="4" required placeholder="Nueva contraseña de nube (mín. 4 caracteres)" value="${esc(state.cloudPassword)}" class="flex-1 border rounded-xl px-3 py-2 font-bold text-xs" />
+                    <button type="submit" class="bg-amber-400 hover:bg-amber-300 text-[#081736] font-black px-3.5 py-2 rounded-xl text-xs">Guardar Clave</button>
+                  </form>
+                </div>
               </form>
 
               <div class="lg:col-span-6 bg-white p-5 rounded-2xl border space-y-3 text-xs">
@@ -2302,7 +2373,6 @@ create policy "Acceso publico POS"
           ` : ""}
 
           ${state.activeTab === "live" ? `
-            ${renderSalesByDayAndProductsCard()}
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-2.5">
                 <h2 class="font-black text-[#081736] text-base">Órdenes en Tiempo Real</h2>
@@ -2327,6 +2397,13 @@ create policy "Acceso publico POS"
               </div>
             </div>
           ` : ""}
+
+          ${state.activeTab === "analytics" && isAdmin ? `
+            <div class="space-y-4">
+              ${renderSalesByDayAndProductsCard()}
+            </div>
+          ` : ""}
+
 
           ${state.activeTab === "inventory" && isAdmin ? `
             <div class="space-y-4">
