@@ -2484,4 +2484,77 @@ create policy "Acceso publico POS"
                     <div class="font-black text-purple-950">Pago Rápido de Sueldos del Domingo (al Corte)</div>
                     <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
                       <input name="pConcept" placeholder="Ej. Sueldos Domingo (cocina/barra)" class="sm:col-span-2 border rounded-lg px-2.5 py-1.5 bg-white font-semibold" />
-                      <div class="flex gap-
+                      <div class="flex gap-1.5">
+                        <input name="pAmount" type="number" step="0.01" required placeholder="Monto $" class="w-full border rounded-lg px-2 py-1.5 bg-white font-bold" />
+                        <button type="submit" class="bg-purple-800 hover:bg-purple-900 text-white font-black px-3 rounded-lg">Pagar</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-3 text-xs">
+                  <h3 class="font-black text-[#081736] text-base">Registrar Gastos y Sueldos</h3>
+                  <form onsubmit="createMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <select name="mCat" class="border rounded-lg px-2 py-2 font-bold">
+                      <option>Sueldos / Nómina</option>
+                      <option>Gasto Operativo / Insumos</option>
+                      <option>Servicios / Renta</option>
+                      <option>Ingreso Adicional</option>
+                    </select>
+                    <input name="mConcept" required placeholder="Concepto / Empleado" class="border rounded-lg px-2.5 py-2" />
+                    <div class="flex gap-1.5">
+                      <input name="mAmount" type="number" step="0.01" required placeholder="$" class="w-full border rounded-lg px-2 py-2" />
+                      <button type="submit" class="bg-[#081736] text-amber-400 font-black px-3 rounded-lg">+</button>
+                    </div>
+                    <label class="sm:col-span-3 flex items-center gap-1.5"><input name="mDrawer" type="checkbox" checked /> Afecta caja física</label>
+                  </form>
+                  <div class="divide-y max-h-56 overflow-y-auto">
+                    ${state.cashMovements.map(m => `
+                      <div class="py-2 flex justify-between items-center">
+                        <span><b>${esc(m.category)}</b> (${esc(m.dayName || "")}): ${esc(m.concept)}</span>
+                        <span class="font-bold">${fmt(m.amount)}</span>
+                      </div>
+                    `).join("")}
+                  </div>
+                </div>
+              </div>
+            </div>
+            ${renderSalesByDayAndProductsCard()}
+            `;
+          })() : ""}
+
+          ${state.activeTab === "printer" ? `
+            <div class="bg-white p-5 rounded-2xl border max-w-2xl mx-auto space-y-4 text-xs">
+              <div class="flex flex-wrap justify-between items-center gap-2">
+                <div>
+                  <h2 class="font-black text-[#081736] text-base">Impresora Bluetooth 58mm (Comanda y Ticket)</h2>
+                  <div class="text-slate-500">Estado: <b>${esc(state.printerStatus)}</b></div>
+                </div>
+                <button onclick="connectBT()" class="bg-blue-600 text-white font-bold px-4 py-2 rounded-xl">🔗 Vincular Impresora BT</button>
+              </div>
+
+              <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 font-bold">
+                <button onclick="printBT(getSample(), true)" class="bg-emerald-600 text-white py-2.5 rounded-xl">🔵 Enviar Comanda Cocina por BT</button>
+                <button onclick="printBT(getSample(), false)" class="bg-blue-600 text-white py-2.5 rounded-xl">🔵 Enviar Ticket Cliente por BT</button>
+                <button onclick="printRaw(getSample(), true)" class="bg-amber-400 text-[#081736] py-2.5 rounded-xl">RawBT Cocina (Android)</button>
+                <button onclick="printCustomer58System(getSample())" class="bg-[#081736] text-white py-2.5 rounded-xl">Imprimir Prueba 58mm</button>
+              </div>
+            </div>
+          ` : ""}
+        </main>
+      `;
+    }
+
+    render();
+
+    if (hasCloud()) {
+      pullFromCloud(true);
+    }
+    setInterval(() => {
+      if (hasCloud()) {
+        pullFromCloud(false);
+      }
+    }, 3500);
+  </script>
+</body>
+</html>
