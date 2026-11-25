@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v18_cloud";
+    const STORAGE_KEY = "the_twins_pos_v19_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -387,6 +387,123 @@ create policy "Acceso publico POS"
         user: state.role === "admin" ? "Administrador" : "Vendedor"
       });
       if (state.inventoryLogs.length > 150) state.inventoryLogs.pop();
+    }
+
+
+    const WEEKDAY_NAMES = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
+    const JUE_DOM_DAYS = ["Jueves", "Viernes", "Sábado", "Domingo"];
+
+    function getOrderDayName(order) {
+      if (order && order.dayName) return order.dayName;
+      return WEEKDAY_NAMES[new Date().getDay()];
+    }
+
+    function isInThuSunCycle(dayName) {
+      return JUE_DOM_DAYS.includes(dayName);
+    }
+
+    function getCycleStats() {
+      const valid = state.orders.filter(o => o.status !== "Cancelado");
+      const byDay = {};
+      ["Jueves", "Viernes", "Sábado", "Domingo", "Lunes", "Martes", "Miércoles"].forEach(d => {
+        byDay[d] = { day: d, ordersCount: 0, sales: 0, cost: 0, profit: 0, deliveredCount: 0 };
+      });
+
+      valid.forEach(o => {
+        const d = getOrderDayName(o);
+        if (!byDay[d]) byDay[d] = { day: d, ordersCount: 0, sales: 0, cost: 0, profit: 0, deliveredCount: 0 };
+        byDay[d].ordersCount += 1;
+        byDay[d].sales += Number(o.totalSale || 0);
+        byDay[d].cost += Number(o.totalCost || 0);
+        byDay[d].profit += Number(o.profit != null ? o.profit : ((o.totalSale || 0) - (o.totalCost || 0)));
+        if (o.status === "Entregado") byDay[d].deliveredCount += 1;
+      });
+
+      const cycleOrders = valid.filter(o => isInThuSunCycle(getOrderDayName(o)));
+      const cycleSales = cycleOrders.reduce((s, o) => s + Number(o.totalSale || 0), 0);
+      const cycleCost = cycleOrders.reduce((s, o) => s + Number(o.totalCost || 0), 0);
+      const cycleGrossProfit = cycleSales - cycleCost;
+
+      const cyclePayroll = state.cashMovements
+        .filter(m => m.category === "Sueldos / Nómina" && isInThuSunCycle(m.dayName || WEEKDAY_NAMES[new Date().getDay()]))
+        .reduce((s, m) => s + Number(m.amount || 0), 0);
+
+      const cycleOtherExpenses = state.cashMovements
+        .filter(m => (m.category === "Gasto Operativo / Insumos" || m.category === "Servicios / Renta") && isInThuSunCycle(m.dayName || WEEKDAY_NAMES[new Date().getDay()]))
+        .reduce((s, m) => s + Number(m.amount || 0), 0);
+
+      const cycleNetAfterPay = cycleGrossProfit - cyclePayroll - cycleOtherExpenses;
+
+      return {
+        byDay,
+        cycleOrdersCount: cycleOrders.length,
+        cycleSales,
+        cycleCost,
+        cycleGrossProfit,
+        cyclePayroll,
+        cycleOtherExpenses,
+        cycleNetAfterPay
+      };
+    }
+
+    function clearKitchenOrdersForNewDay(onlyDelivered) {
+      if (state.pendingPrintOrder) {
+        showToast("Termina las 2 impresiones antes de borrar comandas.");
+        return;
+      }
+      if (state.orders.length === 0) {
+        showToast("No hay comandas para borrar.");
+        return;
+      }
+      const msg = onlyDelivered
+        ? "¿Borrar las comandas ya marcadas como ENTREGADO para limpiar la pantalla?"
+        : "¿Hacer corte y borrar TODAS las comandas/órdenes para iniciar una nueva venta por día? (El menú y configuración se mantienen)";
+      if (!confirm(msg)) return;
+
+      if (onlyDelivered) {
+        const remaining = state.orders.filter(o => o.status !== "Entregado");
+        state.orders = remaining;
+        state.lastKitchenTicket = remaining[0] || null;
+        state.lastTicket = remaining[0] || null;
+        state.inspectedOrderId = remaining[0] ? remaining[0].id : null;
+        addLiveLog("Comandas entregadas borradas");
+      } else {
+        const todayLabel = WEEKDAY_NAMES[new Date().getDay()];
+        const totalCut = state.orders.filter(o => o.status !== "Cancelado").reduce((s, o) => s + Number(o.totalSale || 0), 0);
+        state.orders = [];
+        state.lastTicket = null;
+        state.lastKitchenTicket = null;
+        state.inspectedOrderId = null;
+        addLiveLog(`Corte de ${todayLabel} (${fmt(totalCut)}) — Comandas borradas para iniciar venta del día`);
+      }
+      saveState(true);
+      render();
+      showToast("✓ Comandas limpias. Venta lista para iniciar.");
+    }
+
+    function quickPaySundayPayroll(e) {
+      e.preventDefault();
+      if (state.role !== "admin") return;
+      const f = e.target;
+      const concept = (f.pConcept.value || "").trim() || "Sueldos del Domingo (corte)";
+      const amount = parseFloat(f.pAmount.value) || 0;
+      if (amount <= 0) return;
+      const now = new Date();
+      state.cashMovements.unshift({
+        id: Date.now(),
+        date: now.toLocaleDateString("es-MX"),
+        dayName: WEEKDAY_NAMES[now.getDay()],
+        time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        category: "Sueldos / Nómina",
+        concept,
+        amount,
+        fromDrawer: true
+      });
+      addLiveLog(`Sueldo registrado al corte: ${concept} (${fmt(amount)})`);
+      f.reset();
+      saveState(true);
+      render();
+      showToast("✓ Sueldo del domingo registrado en el corte");
     }
 
     function getFinancials() {
@@ -813,10 +930,13 @@ create policy "Acceso publico POS"
         }
       });
 
+      const nowOrder = new Date();
       const order = {
         id: folio,
         orderName: cleanOrderName,
-        time: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        dayName: WEEKDAY_NAMES[nowOrder.getDay()],
+        date: nowOrder.toLocaleDateString("es-MX"),
+        time: nowOrder.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
         deliveredAt: null,
         items: JSON.parse(JSON.stringify(state.cart)),
         serviceType: state.serviceType,
@@ -1671,7 +1791,7 @@ create policy "Acceso publico POS"
               <button onclick="goTab('homesetup')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "homesetup" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">🎨 Pantalla Principal ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('live')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "live" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📡 En Vivo</button>
               <button onclick="goTab('inventory')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "inventory" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📦 Inventario ${!isAdmin ? "🔒" : ""}</button>
-              <button onclick="goTab('cash')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cash" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">💰 Gastos y Ganancias ${!isAdmin ? "🔒" : ""}</button>
+              <button onclick="goTab('cash')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cash" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">💰 Corte y Sueldos Jue–Dom ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('printer')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "printer" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🖨️ Bluetooth 58mm</button>
             </div>
           </nav>
@@ -1930,8 +2050,12 @@ create policy "Acceso publico POS"
               <div class="bg-white rounded-2xl border-2 border-[#081736] shadow-sm overflow-hidden transition-all ${isKitchenDelivered ? "p-3.5 bg-slate-50/90" : "p-6"}">
                 <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
                   <div>
-                    <div class="text-[10px] font-bold uppercase text-amber-600">Preparación y Entrega</div>
+                    <div class="text-[10px] font-bold uppercase text-amber-600">Preparación y Entrega • Hoy: ${WEEKDAY_NAMES[new Date().getDay()]}</div>
                     <h2 class="font-black text-[#081736] ${isKitchenDelivered ? "text-sm" : "text-lg"}">Comanda de Cocina</h2>
+                  </div>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <button type="button" onclick="clearKitchenOrdersForNewDay(true)" class="bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 rounded-lg font-bold text-[11px]">Borrar Entregadas</button>
+                    <button type="button" onclick="clearKitchenOrdersForNewDay(false)" class="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 rounded-lg font-bold text-[11px]">🗑️ Borrar Comandas / Nuevo Día</button>
                   </div>
                   <div class="flex items-center gap-2">
                     ${kitchenTarget ? `
@@ -2094,41 +2218,109 @@ create policy "Acceso publico POS"
             </div>
           ` : ""}
 
-          ${state.activeTab === "cash" && isAdmin ? `
-            <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-              <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-2.5 text-xs">
-                <h2 class="font-black text-[#081736] text-base">Ganancia Después de Costos, Sueldos y Gastos</h2>
-                <div class="flex justify-between"><span>Ventas Totales:</span><b>${fmt(fin.sales)}</b></div>
-                <div class="flex justify-between"><span>(-) Costo Insumos:</span><b>-${fmt(fin.cost)}</b></div>
-                <div class="flex justify-between text-emerald-700 font-bold"><span>Ganancia de Ventas:</span><span>${fmt(fin.grossProfit)}</span></div>
-                <div class="flex justify-between text-purple-800 font-bold"><span>(-) Sueldos / Nómina:</span><span>-${fmt(fin.payroll)}</span></div>
-                <div class="flex justify-between text-rose-700 font-bold"><span>(-) Otros Gastos:</span><span>-${fmt(fin.expenses)}</span></div>
-                <div class="flex justify-between text-base font-black pt-2 border-t text-[#081736]"><span>GANANCIA REAL FINAL:</span><span>${fmt(fin.netFinal)}</span></div>
-              </div>
-              <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-3 text-xs">
-                <h2 class="font-black text-[#081736] text-base">Registrar Gastos y Sueldos</h2>
-                <form onsubmit="createMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <select name="mCat" class="border rounded-lg px-2 py-2 font-bold">
-                    <option>Sueldos / Nómina</option>
-                    <option>Gasto Operativo / Insumos</option>
-                    <option>Servicios / Renta</option>
-                    <option>Ingreso Adicional</option>
-                  </select>
-                  <input name="mConcept" required placeholder="Concepto / Empleado" class="border rounded-lg px-2.5 py-2" />
-                  <div class="flex gap-1.5">
-                    <input name="mAmount" type="number" step="0.01" required placeholder="$" class="w-full border rounded-lg px-2 py-2" />
-                    <button type="submit" class="bg-[#081736] text-amber-400 font-black px-3 rounded-lg">+</button>
+          ${state.activeTab === "cash" && isAdmin ? (() => {
+            const cyc = getCycleStats();
+            return `
+            <div class="space-y-4">
+              <div class="bg-[#081736] text-white p-5 rounded-2xl border-2 border-amber-400 space-y-3 text-xs">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b border-white/15 pb-3">
+                  <div>
+                    <div class="text-[10px] font-bold uppercase text-amber-300">Ciclo Semanal de Venta • Jueves a Domingo</div>
+                    <h2 class="font-black text-base sm:text-lg">Corte Acumulado Jueves–Domingo y Sueldos de Domingo</h2>
+                    <p class="text-slate-300 text-[11px]">Consulta todo lo acumulado de jueves a domingo para pagar sueldos el domingo al corte y reiniciar la venta del día.</p>
                   </div>
-                  <label class="sm:col-span-3 flex items-center gap-1.5"><input name="mDrawer" type="checkbox" checked /> Afecta caja física</label>
-                </form>
-                <div class="divide-y max-h-48 overflow-y-auto">
-                  ${state.cashMovements.map(m => `
-                    <div class="py-2 flex justify-between"><span><b>${esc(m.category)}</b>: ${esc(m.concept)}</span><span class="font-bold">${fmt(m.amount)}</span></div>
-                  `).join("")}
+                  <button type="button" onclick="clearKitchenOrdersForNewDay(false)" class="bg-amber-400 hover:bg-amber-300 text-[#081736] font-black px-3.5 py-2 rounded-xl text-xs">
+                    🗑️ Hacer Corte y Borrar Comandas (Nuevo Día)
+                  </button>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2.5">
+                  <div class="bg-white/10 p-3 rounded-xl">
+                    <div class="text-amber-200 text-[11px]">Ventas Jue–Dom (${cyc.cycleOrdersCount} órdenes)</div>
+                    <div class="text-lg font-black">${fmt(cyc.cycleSales)}</div>
+                  </div>
+                  <div class="bg-white/10 p-3 rounded-xl">
+                    <div class="text-emerald-300 text-[11px]">Ganancia Bruta Jue–Dom</div>
+                    <div class="text-lg font-black text-emerald-300">${fmt(cyc.cycleGrossProfit)}</div>
+                  </div>
+                  <div class="bg-white/10 p-3 rounded-xl">
+                    <div class="text-purple-200 text-[11px]">Sueldos / Nómina Jue–Dom</div>
+                    <div class="text-lg font-black text-purple-300">-${fmt(cyc.cyclePayroll)}</div>
+                  </div>
+                  <div class="bg-emerald-500/20 border border-emerald-400 p-3 rounded-xl">
+                    <div class="text-amber-300 text-[11px] font-bold">Saldo / Ganancia Neta Jue–Dom</div>
+                    <div class="text-lg font-black text-emerald-300">${fmt(cyc.cycleNetAfterPay)}</div>
+                  </div>
+                </div>
+
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                  ${JUE_DOM_DAYS.map(d => {
+                    const st = cyc.byDay[d] || { ordersCount: 0, sales: 0, profit: 0 };
+                    return `
+                      <div class="bg-white text-slate-900 p-3 rounded-xl border">
+                        <div class="flex justify-between items-center font-black text-xs text-[#081736]">
+                          <span>${d}</span>
+                          <span class="text-[10px] bg-amber-100 px-2 py-0.5 rounded-full">${st.ordersCount} ord.</span>
+                        </div>
+                        <div class="text-sm font-black mt-1">Ventas: ${fmt(st.sales)}</div>
+                        <div class="text-[11px] font-bold text-emerald-700">Ganancia: ${fmt(st.profit)}</div>
+                      </div>
+                    `;
+                  }).join("")}
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+                <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-2.5 text-xs">
+                  <h3 class="font-black text-[#081736] text-base">Ganancia General Después de Costos, Sueldos y Gastos</h3>
+                  <div class="flex justify-between"><span>Ventas Totales:</span><b>${fmt(fin.sales)}</b></div>
+                  <div class="flex justify-between"><span>(-) Costo Insumos:</span><b>-${fmt(fin.cost)}</b></div>
+                  <div class="flex justify-between text-emerald-700 font-bold"><span>Ganancia de Ventas:</span><span>${fmt(fin.grossProfit)}</span></div>
+                  <div class="flex justify-between text-purple-800 font-bold"><span>(-) Sueldos / Nómina:</span><span>-${fmt(fin.payroll)}</span></div>
+                  <div class="flex justify-between text-rose-700 font-bold"><span>(-) Otros Gastos:</span><span>-${fmt(fin.expenses)}</span></div>
+                  <div class="flex justify-between text-base font-black pt-2 border-t text-[#081736]"><span>GANANCIA REAL FINAL:</span><span>${fmt(fin.netFinal)}</span></div>
+
+                  <form onsubmit="quickPaySundayPayroll(event)" class="pt-3 border-t space-y-2 bg-purple-50/70 p-3 rounded-xl border border-purple-200">
+                    <div class="font-black text-purple-950">Pago Rápido de Sueldos del Domingo (al Corte)</div>
+                    <div class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                      <input name="pConcept" placeholder="Ej. Sueldos Domingo (cocina/barra)" class="sm:col-span-2 border rounded-lg px-2.5 py-1.5 bg-white font-semibold" />
+                      <div class="flex gap-1.5">
+                        <input name="pAmount" type="number" step="0.01" required placeholder="Monto $" class="w-full border rounded-lg px-2 py-1.5 bg-white font-bold" />
+                        <button type="submit" class="bg-purple-800 hover:bg-purple-900 text-white font-black px-3 rounded-lg">Pagar</button>
+                      </div>
+                    </div>
+                  </form>
+                </div>
+
+                <div class="lg:col-span-6 bg-white p-4 rounded-2xl border space-y-3 text-xs">
+                  <h3 class="font-black text-[#081736] text-base">Registrar Gastos y Sueldos</h3>
+                  <form onsubmit="createMovement(event)" class="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <select name="mCat" class="border rounded-lg px-2 py-2 font-bold">
+                      <option>Sueldos / Nómina</option>
+                      <option>Gasto Operativo / Insumos</option>
+                      <option>Servicios / Renta</option>
+                      <option>Ingreso Adicional</option>
+                    </select>
+                    <input name="mConcept" required placeholder="Concepto / Empleado" class="border rounded-lg px-2.5 py-2" />
+                    <div class="flex gap-1.5">
+                      <input name="mAmount" type="number" step="0.01" required placeholder="$" class="w-full border rounded-lg px-2 py-2" />
+                      <button type="submit" class="bg-[#081736] text-amber-400 font-black px-3 rounded-lg">+</button>
+                    </div>
+                    <label class="sm:col-span-3 flex items-center gap-1.5"><input name="mDrawer" type="checkbox" checked /> Afecta caja física</label>
+                  </form>
+                  <div class="divide-y max-h-56 overflow-y-auto">
+                    ${state.cashMovements.map(m => `
+                      <div class="py-2 flex justify-between items-center">
+                        <span><b>${esc(m.category)}</b> (${esc(m.dayName || "")}): ${esc(m.concept)}</span>
+                        <span class="font-bold">${fmt(m.amount)}</span>
+                      </div>
+                    `).join("")}
+                  </div>
                 </div>
               </div>
             </div>
-          ` : ""}
+            `;
+          })() : ""}
 
           ${state.activeTab === "printer" ? `
             <div class="bg-white p-5 rounded-2xl border max-w-2xl mx-auto space-y-4 text-xs">
