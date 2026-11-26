@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v35_cloud";
+    const STORAGE_KEY = "the_twins_pos_v37_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -74,9 +74,9 @@ create policy "Acceso publico POS"
       authError: "",
       pendingTab: null,
       cashOpen: true,
-      dayActive: true,
-      dayStartedAt: new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      dayStartedLabel: new Date().toLocaleDateString("es-MX"),
+      dayActive: false,
+      dayStartedAt: "",
+      dayStartedLabel: "", 
       daySessions: [],
       dayCuts: [],
       selectedHistorySessionId: null,
@@ -117,7 +117,21 @@ create policy "Acceso publico POS"
         { id: "P2", kind: "standard", name: "Orden de Papas", category: "Snacks", costPrice: 20, price: 50, stock: 40, infinite: false, desc: "Papas a la francesa doradas" },
         { id: "P3", kind: "ramen", name: "Ramen", category: "Especiales", costPrice: 38, price: 85, stock: 20, infinite: false, desc: "Precio ajustable al momento" },
         { id: "P4", name: "Marquesitas", kind: "marquesita", category: "Postres", costPrice: 12, price: 30, stock: 35, infinite: false, desc: "Elige: Queso, Nutella o Queso con nutella" },
-        { id: "P5", name: "Hamburguesas", kind: "burger", category: "Platillos", costPrice: 45, price: 90, stock: 25, infinite: false, desc: "Arrachera o Sirloin • Con todo o sin ingredientes" },
+        {
+          id: "P5",
+          name: "Hamburguesas",
+          kind: "burger",
+          category: "Platillos",
+          costPrice: 45,
+          price: 90,
+          stock: 25,
+          infinite: false,
+          desc: "Arrachera o Sirloin • Con todo o sin ingredientes",
+          meats: [
+            { name: "Arrachera", stock: 15 },
+            { name: "Sirloin", stock: 10 }
+          ]
+        },
         { id: "P6", name: "Orden de Alitas", kind: "wings", category: "Platillos", costPrice: 46, price: 90, stock: 25, infinite: false, desc: "Sabores: BBQ, Lemon Pepper, Cajun, Mango Habanero" },
         { id: "P7", name: "Coca", kind: "coca", category: "Refrescos", costPrice: 11, price: 25, stock: 24, infinite: false, desc: "Refresco de cola frío" },
         {
@@ -142,6 +156,7 @@ create policy "Acceso publico POS"
         { id: "P10", name: "Aderezo Extra", kind: "standard", category: "Extras", costPrice: 6, price: 15, stock: 0, infinite: true, desc: "Aderezo extra a elegir" }
       ],
       orders: [],
+      supplyRequests: [],
       inventoryLogs: [
         {
           date: new Date().toLocaleDateString("es-MX"),
@@ -164,9 +179,25 @@ create policy "Acceso publico POS"
     let cloudStatus = cloudCfg.url && cloudCfg.key ? "Conectando a Supabase..." : "Solo local (Pega tu Publishable key en ☁️ Nube)";
     let isSyncing = false;
     let state = loadState();
+    ensureBurgerMeatsStructure(state.products);
     let btDevice = null;
     let btChar = null;
     let toastTimer = null;
+
+    function ensureBurgerMeatsStructure(productsList) {
+      if (!Array.isArray(productsList)) return;
+      productsList.forEach(p => {
+        if (p && p.kind === "burger" && !Array.isArray(p.meats)) {
+          const total = Math.max(0, Number(p.stock || 0));
+          const arr = Math.ceil(total / 2);
+          const sir = Math.max(0, total - arr);
+          p.meats = [
+            { name: "Arrachera", stock: arr },
+            { name: "Sirloin", stock: sir }
+          ];
+        }
+      });
+    }
 
     function loadCloudCfg() {
       try {
@@ -207,6 +238,7 @@ create policy "Acceso publico POS"
         showHomeStock: state.showHomeStock,
         products: state.products,
         orders: state.orders,
+        supplyRequests: state.supplyRequests,
         daySessions: state.daySessions,
         dayCuts: state.dayCuts,
         dayActive: state.dayActive,
@@ -220,8 +252,9 @@ create policy "Acceso publico POS"
 
     function applySharedPayload(remote) {
       if (!remote || typeof remote !== "object") return;
-      if (Array.isArray(remote.products)) state.products = remote.products;
+      if (Array.isArray(remote.products)) { state.products = remote.products; ensureBurgerMeatsStructure(state.products); }
       if (Array.isArray(remote.orders)) state.orders = remote.orders;
+      if (Array.isArray(remote.supplyRequests)) state.supplyRequests = remote.supplyRequests;
       if (Array.isArray(remote.daySessions)) state.daySessions = remote.daySessions;
       if (Array.isArray(remote.dayCuts)) state.dayCuts = remote.dayCuts;
       if (typeof remote.dayActive === "boolean") state.dayActive = remote.dayActive;
@@ -332,10 +365,11 @@ create policy "Acceso publico POS"
             pendingTab: null,
             toastMsg: "",
             cart: parsed.cart || [],
+            supplyRequests: parsed.supplyRequests || [],
             cashMovements: parsed.cashMovements || [],
             daySessions: parsed.daySessions || [],
             dayCuts: parsed.dayCuts || [],
-            dayActive: typeof parsed.dayActive === "boolean" ? parsed.dayActive : true,
+            dayActive: typeof parsed.dayActive === "boolean" ? parsed.dayActive : false,
             dayStartedAt: parsed.dayStartedAt || new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
             dayStartedLabel: parsed.dayStartedLabel || new Date().toLocaleDateString("es-MX"),
             selectedHistorySessionId: parsed.selectedHistorySessionId || null,
@@ -344,7 +378,7 @@ create policy "Acceso publico POS"
           });
         }
       } catch (err) {}
-      return JSON.parse(JSON.stringify(DEFAULT_STATE));
+      const fresh = JSON.parse(JSON.stringify(DEFAULT_STATE)); ensureBurgerMeatsStructure(fresh.products); return fresh;
     }
 
     function saveLocalOnly() {
@@ -395,6 +429,9 @@ create policy "Acceso publico POS"
       if (prod.kind === "jarrito" && Array.isArray(prod.flavors)) {
         return prod.flavors.reduce((s, f) => s + Number(f.stock || 0), 0);
       }
+      if (prod.kind === "burger" && Array.isArray(prod.meats)) {
+        return prod.meats.reduce((s, m) => s + Number(m.stock || 0), 0);
+      }
       return Number(prod.stock || 0);
     }
 
@@ -444,7 +481,37 @@ create policy "Acceso publico POS"
       return [...state.orders, ...archivedOrders];
     }
 
+    function getTodayDateLabel() {
+      return new Date().toLocaleDateString("es-MX");
+    }
+
+    function isPreviousDayStillOpen() {
+      if (!state.dayActive) return false;
+      const today = getTodayDateLabel();
+      return Boolean(state.dayStartedLabel && state.dayStartedLabel !== today);
+    }
+
+    function checkCanTakeOrders() {
+      if (isPreviousDayStillOpen()) {
+        alert(`⚠️ El día anterior (${state.dayStartedLabel}) sigue abierto.\n\nPara iniciar hoy, primero tienes que cerrar el día de ayer con el botón "⏹️ Cerrar Día" y después volver a dar "▶️ Iniciar Cuenta" para el nuevo día.`);
+        return false;
+      }
+      if (!state.dayActive) {
+        alert("⚠️ Aún no has iniciado la cuenta del día.\n\nPulsa primero el botón verde "▶️ Iniciar Cuenta" en la barra superior para empezar a tomar órdenes.");
+        return false;
+      }
+      return true;
+    }
+
     function startNewDayAccount() {
+      if (isPreviousDayStillOpen()) {
+        alert(`⚠️ No puedes iniciar el nuevo día porque el día de ayer (${state.dayStartedLabel}) sigue abierto.\n\nPrimero cierra el día anterior con "⏹️ Cerrar Día" y vuelve a dar "▶️ Iniciar Cuenta" para el nuevo día.`);
+        return;
+      }
+      if (state.dayActive && state.dayStartedLabel === getTodayDateLabel()) {
+        showToast("La cuenta de hoy ya está activa.");
+        return;
+      }
       const now = new Date();
       const dayName = WEEKDAY_NAMES[now.getDay()];
       const dateLabel = now.toLocaleDateString("es-MX");
@@ -1324,6 +1391,7 @@ create policy "Acceso publico POS"
     }
 
     function onProductClick(prodId) {
+      if (!checkCanTakeOrders()) return;
       if (state.pendingPrintOrder) {
         showToast("Completa las 2 impresiones antes de tomar otra orden.");
         return;
@@ -1332,9 +1400,19 @@ create policy "Acceso publico POS"
       if (!p) return;
 
       if (p.kind === "burger" || p.kind === "wings" || p.kind === "marquesita" || p.kind === "jarrito") {
-        if (p.kind !== "jarrito" && !p.infinite && p.stock <= 0) {
+        if (p.kind === "burger" && !p.infinite) {
+          ensureBurgerMeatsStructure([p]);
+          const availMeats = (p.meats || []).filter(m => m.stock > 0);
+          if (availMeats.length === 0) {
+            alert("Hamburguesas agotadas (sin Arrachera ni Sirloin).");
+            return;
+          }
+          state.optBurgerType = availMeats[0].name;
+        } else if (p.kind !== "jarrito" && !p.infinite && p.stock <= 0) {
           alert("Producto agotado.");
           return;
+        } else {
+          state.optBurgerType = "Arrachera";
         }
         if (p.kind === "jarrito") {
           const avail = (p.flavors || []).filter(f => f.stock > 0);
@@ -1345,7 +1423,6 @@ create policy "Acceso publico POS"
           state.optJarritoFlavor = avail[0].name;
         }
         state.optionModalProdId = p.id;
-        state.optBurgerType = "Arrachera";
         state.optBurgerExtras = ["Con todo"];
         state.optWingFlavor = "BBQ";
         state.optMarquesita = "Queso";
@@ -1383,8 +1460,14 @@ create policy "Acceso publico POS"
       if (!p) return;
 
       if (p.kind === "burger") {
+        ensureBurgerMeatsStructure([p]);
+        const mt = (p.meats || []).find(m => m.name === state.optBurgerType);
+        if (!p.infinite && (!mt || mt.stock <= 0)) {
+          alert(`Ya no quedan hamburguesas de ${state.optBurgerType}.`);
+          return;
+        }
         const detail = `${state.optBurgerType} • ${state.optBurgerExtras.join(", ")}`;
-        addCartItemDirect(p, `${p.name} (${state.optBurgerType})`, detail, null);
+        addCartItemDirect(p, `${p.name} (${state.optBurgerType})`, detail, null, state.optBurgerType);
       } else if (p.kind === "wings") {
         const detail = `Sabor ${state.optWingFlavor}`;
         addCartItemDirect(p, `${p.name} (${state.optWingFlavor})`, detail, null);
@@ -1405,24 +1488,38 @@ create policy "Acceso publico POS"
       render();
     }
 
-    function getCartReservedQty(prodId, flavorName) {
+    function getCartReservedQty(prodId, flavorName, meatName) {
       return state.cart
-        .filter(it => it.prodId === prodId && (!flavorName || it.flavorName === flavorName))
+        .filter(it =>
+          it.prodId === prodId &&
+          (!flavorName || it.flavorName === flavorName) &&
+          (!meatName || it.meatName === meatName)
+        )
         .reduce((s, it) => s + it.qty, 0);
     }
 
-    function addCartItemDirect(p, displayName, detail, flavorName) {
+    function addCartItemDirect(p, displayName, detail, flavorName, meatName) {
+      if (!checkCanTakeOrders()) return;
       if (p.kind === "jarrito" && flavorName) {
         const fl = (p.flavors || []).find(f => f.name === flavorName);
         if (!fl) return;
-        const reserved = getCartReservedQty(p.id, flavorName);
+        const reserved = getCartReservedQty(p.id, flavorName, null);
         if (reserved + 1 > fl.stock) {
           alert(`Solo quedan ${fl.stock} Jarritos de ${flavorName}.`);
           return;
         }
+      } else if (p.kind === "burger" && meatName && !p.infinite) {
+        ensureBurgerMeatsStructure([p]);
+        const mt = (p.meats || []).find(m => m.name === meatName);
+        if (!mt) return;
+        const reserved = getCartReservedQty(p.id, null, meatName);
+        if (reserved + 1 > mt.stock) {
+          alert(`Solo quedan ${mt.stock} hamburguesas de ${meatName}.`);
+          return;
+        }
       } else if (!p.infinite) {
-        const reserved = getCartReservedQty(p.id, null);
-        if (reserved + 1 > p.stock) {
+        const reserved = getCartReservedQty(p.id, null, null);
+        if (reserved + 1 > getTotalStock(p)) {
           alert("No hay más stock disponible de " + p.name);
           return;
         }
@@ -1439,6 +1536,7 @@ create policy "Acceso publico POS"
           displayName: displayName,
           detail: detail || "",
           flavorName: flavorName || null,
+          meatName: meatName || null,
           costPrice: Number(p.costPrice),
           price: Number(p.price),
           qty: 1
@@ -1470,7 +1568,14 @@ create policy "Acceso publico POS"
             alert(`Solo hay ${fl.stock} disponibles de ${it.flavorName}.`);
             return;
           }
-        } else if (p && !p.infinite && next > p.stock) {
+        } else if (p && p.kind === "burger" && it.meatName && !p.infinite) {
+          ensureBurgerMeatsStructure([p]);
+          const mt = (p.meats || []).find(m => m.name === it.meatName);
+          if (mt && next > mt.stock) {
+            alert(`Solo hay ${mt.stock} hamburguesas disponibles de ${it.meatName}.`);
+            return;
+          }
+        } else if (p && !p.infinite && next > getTotalStock(p)) {
           alert("Stock máximo alcanzado.");
           return;
         }
@@ -1481,6 +1586,7 @@ create policy "Acceso publico POS"
     }
 
     async function checkoutOrder() {
+      if (!checkCanTakeOrders()) return;
       if (state.pendingPrintOrder) {
         showToast("Termina las 2 impresiones de la orden actual primero.");
         return;
@@ -1517,6 +1623,15 @@ create policy "Acceso publico POS"
             const prev = fl.stock;
             fl.stock = Math.max(0, fl.stock - item.qty);
             addInvLog("Salida Jarrito", `Jarrito ${fl.name}`, `${cleanOrderName} (#${folio}): -${item.qty} (${prev} -> ${fl.stock})`);
+          }
+        } else if (p.kind === "burger" && item.meatName && !p.infinite) {
+          ensureBurgerMeatsStructure([p]);
+          const mt = (p.meats || []).find(m => m.name === item.meatName);
+          if (mt) {
+            const prev = mt.stock;
+            mt.stock = Math.max(0, mt.stock - item.qty);
+            p.stock = getTotalStock(p);
+            addInvLog("Salida Hamburguesa", `Hamburguesa ${mt.name}`, `${cleanOrderName} (#${folio}): -${item.qty} (${prev} -> ${mt.stock})`);
           }
         } else if (!p.infinite) {
           const prev = p.stock;
@@ -2012,6 +2127,68 @@ create policy "Acceso publico POS"
       render();
     }
 
+    function editBurgerMeatStock(meatName, val) {
+      const p = state.products.find(x => x.kind === "burger");
+      if (!p) return;
+      ensureBurgerMeatsStructure([p]);
+      const mt = (p.meats || []).find(m => m.name === meatName);
+      if (!mt) return;
+      const old = mt.stock;
+      mt.stock = Math.max(0, parseInt(val) || 0);
+      p.stock = getTotalStock(p);
+      addInvLog("Stock Hamburguesa", `Hamburguesa ${mt.name}`, `${old} -> ${mt.stock} uds`);
+      saveState(true);
+      render();
+    }
+
+    function addBurgerMeatQuick(meatName, qty) {
+      const p = state.products.find(x => x.kind === "burger");
+      if (!p) return;
+      ensureBurgerMeatsStructure([p]);
+      const mt = (p.meats || []).find(m => m.name === meatName);
+      if (!mt) return;
+      const old = mt.stock;
+      mt.stock += qty;
+      p.stock = getTotalStock(p);
+      addInvLog("Entrada Hamburguesa", `Hamburguesa ${mt.name}`, `+${qty} uds (${old} -> ${mt.stock})`);
+      saveState(true);
+      render();
+    }
+
+    function addNewJarritoFlavor(e) {
+      e.preventDefault();
+      const f = e.target;
+      const fname = (f.newFlavorName.value || "").trim();
+      const fstock = Math.max(0, parseInt(f.newFlavorStock.value) || 0);
+      if (!fname) return;
+      const p = state.products.find(x => x.kind === "jarrito");
+      if (!p) return;
+      if (!Array.isArray(p.flavors)) p.flavors = [];
+      const exists = p.flavors.find(fl => fl.name.toLowerCase() === fname.toLowerCase());
+      if (exists) {
+        const old = exists.stock;
+        exists.stock += fstock;
+        addInvLog("Entrada Jarrito", `Jarrito ${exists.name}`, `+${fstock} uds (${old} -> ${exists.stock})`);
+      } else {
+        p.flavors.push({ name: fname, stock: fstock });
+        addInvLog("Nuevo Sabor Jarrito", `Jarrito ${fname}`, `Agregado con ${fstock} uds`);
+      }
+      f.reset();
+      saveState(true);
+      render();
+      showToast(`✓ Sabor "${fname}" guardado en Jarritos`);
+    }
+
+    function removeJarritoFlavor(flavorName) {
+      const p = state.products.find(x => x.kind === "jarrito");
+      if (!p || !Array.isArray(p.flavors)) return;
+      if (!confirm(`¿Quitar el sabor "${flavorName}" de los Jarritos?`)) return;
+      p.flavors = p.flavors.filter(fl => fl.name !== flavorName);
+      addInvLog("Sabor Jarrito Eliminado", `Jarrito ${flavorName}`, "Eliminado del catálogo");
+      saveState(true);
+      render();
+    }
+
     function editJarritoFlavorStock(flavorName, val) {
       const p = state.products.find(x => x.kind === "jarrito");
       if (!p || !Array.isArray(p.flavors)) return;
@@ -2114,6 +2291,64 @@ create policy "Acceso publico POS"
       render();
     }
 
+    function createSupplyRequest(e) {
+      e.preventDefault();
+      const f = e.target;
+      const msg = (f.reqMsg.value || "").trim();
+      const urgency = f.reqUrgency ? f.reqUrgency.value : "Normal";
+      if (!msg) return;
+      const now = new Date();
+      if (!Array.isArray(state.supplyRequests)) state.supplyRequests = [];
+      state.supplyRequests.unshift({
+        id: "REQ-" + Date.now(),
+        date: now.toLocaleDateString("es-MX"),
+        time: now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
+        message: msg,
+        urgency,
+        fromRole: state.role === "admin" ? "Administrador" : "Vendedor",
+        status: "Pendiente",
+        resolvedAt: null
+      });
+      if (state.supplyRequests.length > 80) state.supplyRequests.pop();
+      addLiveLog(`Aviso de surtido (${urgency}): ${msg}`);
+      f.reset();
+      saveState(true);
+      render();
+      showToast("✓ Aviso enviado al Administrador");
+    }
+
+    function setQuickSupplyTemplate(text) {
+      const inp = document.getElementById("reqMsgInput");
+      if (inp) {
+        inp.value = text;
+        inp.focus();
+      }
+    }
+
+    function resolveSupplyRequest(reqId) {
+      const req = (state.supplyRequests || []).find(r => r.id === reqId);
+      if (!req) return;
+      req.status = "Surtido";
+      req.resolvedAt = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+      addLiveLog(`Solicitud atendida: ${req.message}`);
+      saveState(true);
+      render();
+      showToast("✓ Marcado como surtido");
+    }
+
+    function deleteSupplyRequest(reqId) {
+      state.supplyRequests = (state.supplyRequests || []).filter(r => r.id !== reqId);
+      saveState(true);
+      render();
+    }
+
+    function clearResolvedSupplyRequests() {
+      state.supplyRequests = (state.supplyRequests || []).filter(r => r.status !== "Surtido");
+      saveState(true);
+      render();
+      showToast("✓ Avisos ya surtidos limpiados");
+    }
+
     function openKitchenForOrderId(id) {
       if (state.pendingPrintOrder) {
         showToast("Completa las 2 impresiones antes de salir.");
@@ -2130,17 +2365,48 @@ create policy "Acceso publico POS"
     }
 
     function renderMenuFullEditorTable() {
+      const burgerProd = state.products.find(x => x.kind === "burger");
+      if (burgerProd) ensureBurgerMeatsStructure([burgerProd]);
+      const burgerHtml = (burgerProd && Array.isArray(burgerProd.meats))
+        ? `<div class="pt-3 border-t space-y-2 text-xs">
+            <div class="font-black text-[#081736]">🍔 Hamburguesas — Existencias por Tipo de Carne (Sirloin / Arrachera)</div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-w-xl">
+              ${burgerProd.meats.map(mt => `
+                <div data-mt="${esc(mt.name)}" class="p-2.5 rounded-xl border bg-amber-50/60 border-amber-200 flex items-center justify-between gap-2">
+                  <div>
+                    <span class="font-black text-[#081736]">Carne ${esc(mt.name)}</span>
+                    <div class="text-[10px] text-slate-500">Piezas disponibles</div>
+                  </div>
+                  <div class="flex items-center gap-1">
+                    <input type="number" value="${mt.stock}" onchange="editBurgerMeatStock(this.closest('div[data-mt]').dataset.mt, this.value)" class="w-14 border rounded px-2 py-1 font-black bg-white" />
+                    <button type="button" onclick="addBurgerMeatQuick(this.closest('div[data-mt]').dataset.mt, 5)" class="bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold">+5</button>
+                    <button type="button" onclick="addBurgerMeatQuick(this.closest('div[data-mt]').dataset.mt, 10)" class="bg-emerald-100 text-emerald-800 px-2 py-1 rounded font-bold">+10</button>
+                  </div>
+                </div>
+              `).join("")}
+            </div>
+          </div>`
+        : "";
+
       const jar = state.products.find(x => x.kind === "jarrito");
       const jarHtml = (jar && Array.isArray(jar.flavors))
-        ? `<div class="pt-3 border-t space-y-2 text-xs">
-            <div class="font-black text-[#081736]">Sabores de Jarrito (Stock por sabor)</div>
+        ? `<div class="pt-3 border-t space-y-2.5 text-xs">
+            <div class="flex flex-wrap justify-between items-center gap-2">
+              <div class="font-black text-[#081736]">🥤 Sabores de Jarrito / Refrescos (Stock por sabor)</div>
+              <form onsubmit="addNewJarritoFlavor(event)" class="flex flex-wrap items-center gap-1.5">
+                <input name="newFlavorName" required placeholder="Nuevo sabor (ej. Tutifruti, Toronja)" class="border rounded-lg px-2.5 py-1 bg-white font-semibold text-xs" />
+                <input name="newFlavorStock" type="number" min="0" value="6" placeholder="Piezas" class="w-16 border rounded-lg px-2 py-1 bg-white font-bold text-xs" />
+                <button type="submit" class="bg-[#081736] text-amber-400 font-black px-2.5 py-1 rounded-lg text-[11px]">+ Agregar Sabor</button>
+              </form>
+            </div>
             <div class="grid grid-cols-2 sm:grid-cols-5 gap-2">
               ${jar.flavors.map(fl => `
                 <div data-fl="${esc(fl.name)}" class="p-2 rounded-xl border bg-slate-50 flex items-center justify-between gap-1">
-                  <span class="font-bold text-slate-800">${esc(fl.name)}</span>
+                  <span class="font-bold text-slate-800 truncate">${esc(fl.name)}</span>
                   <div class="flex items-center gap-1">
                     <input type="number" value="${fl.stock}" onchange="editJarritoFlavorStock(this.closest('div[data-fl]').dataset.fl, this.value)" class="w-12 border rounded px-1.5 py-0.5 font-bold bg-white" />
                     <button type="button" onclick="addJarritoFlavorQuick(this.closest('div[data-fl]').dataset.fl, 6)" class="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">+6</button>
+                    <button type="button" onclick="removeJarritoFlavor(this.closest('div[data-fl]').dataset.fl)" title="Quitar sabor" class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold">✕</button>
                   </div>
                 </div>
               `).join("")}
@@ -2182,7 +2448,7 @@ create policy "Acceso publico POS"
                   <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.costPrice}" onchange="editProd(this.closest('tr').dataset.pid,'costPrice',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
                   <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.price}" onchange="editProd(this.closest('tr').dataset.pid,'price',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
                   <td class="py-2 pr-2">
-                    ${p.kind === "jarrito" ? `<span class="text-slate-500 font-semibold">Por sabor (${getTotalStock(p)} total)</span>` : `
+                    ${p.kind === "jarrito" ? `<span class="text-slate-500 font-semibold">Por sabor (${getTotalStock(p)} total)</span>` : p.kind === "burger" ? `<span class="text-slate-600 font-semibold">Por carne (${getTotalStock(p)} total)</span>` : `
                       <div class="flex items-center gap-1">
                         <input type="number" value="${p.stock}" ${p.infinite ? "disabled" : ""} onchange="editProd(this.closest('tr').dataset.pid,'stock',this.value)" class="border rounded px-2 py-1 w-14 font-bold" />
                         ${!p.infinite ? `
@@ -2201,6 +2467,7 @@ create policy "Acceso publico POS"
             </tbody>
           </table>
         </div>
+        ${burgerHtml}
         ${jarHtml}
       `;
     }
@@ -2219,6 +2486,7 @@ create policy "Acceso publico POS"
         return okCat && okQ;
       });
 
+      const pendingReqs = (state.supplyRequests || []).filter(r => r.status !== "Surtido");
       const modalProd = state.optionModalProdId ? state.products.find(x => x.id === state.optionModalProdId) : null;
       const kitchenTarget = state.lastKitchenTicket || state.lastTicket || (state.orders.length > 0 ? state.orders[0] : null);
       const isKitchenDelivered = kitchenTarget && kitchenTarget.status === "Entregado";
@@ -2319,10 +2587,19 @@ create policy "Acceso publico POS"
                   <div>
                     <div class="font-bold text-slate-700 mb-1.5">1. Tipo de carne:</div>
                     <div class="grid grid-cols-2 gap-2">
-                      ${BURGER_TYPES.map(bt => `
-                        <button type="button" data-bt="${bt}" onclick="state.optBurgerType=this.dataset.bt;render();"
-                          class="py-2 px-3 rounded-xl font-extrabold border ${state.optBurgerType === bt ? "bg-[#081736] text-amber-400 border-[#081736]" : "bg-slate-50 text-slate-700"}">${bt}</button>
-                      `).join("")}
+                      ${BURGER_TYPES.map(bt => {
+                        const mObj = (modalProd.meats || []).find(m => m.name === bt);
+                        const resM = getCartReservedQty(modalProd.id, null, bt);
+                        const remM = modalProd.infinite ? 99 : Math.max(0, (mObj ? Number(mObj.stock || 0) : 0) - resM);
+                        const noStock = !modalProd.infinite && remM <= 0;
+                        return `
+                          <button type="button" ${noStock ? "disabled" : ""} data-bt="${bt}" onclick="state.optBurgerType=this.dataset.bt;render();"
+                            class="py-2 px-3 rounded-xl font-extrabold border text-left ${noStock ? "opacity-40 bg-slate-100 cursor-not-allowed" : state.optBurgerType === bt ? "bg-[#081736] text-amber-400 border-[#081736]" : "bg-slate-50 text-slate-700"}">
+                            <div>${bt}</div>
+                            ${!modalProd.infinite ? `<div class="text-[10px] font-bold ${state.optBurgerType === bt ? "text-amber-200" : "text-slate-500"}">Quedan: ${remM}</div>` : ""}
+                          </button>
+                        `;
+                      }).join("")}
                     </div>
                   </div>
                   <div>
@@ -2421,6 +2698,10 @@ create policy "Acceso publico POS"
             <div class="max-w-7xl mx-auto flex gap-2 text-xs font-bold">
               <button onclick="goTab('pos')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "pos" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🍔 Pedido</button>
               <button onclick="goTab('kitchen')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "kitchen" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">👨‍🍳 Comanda Cocina</button>
+              <button onclick="goTab('requests')" class="px-3 py-1.5 rounded-lg flex items-center gap-1.5 ${state.activeTab === "requests" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">
+                <span>🔔 Avisos / Surtido</span>
+                ${pendingReqs.length > 0 ? `<span class="bg-rose-600 text-white text-[10px] font-black px-1.5 py-0.2 rounded-full">${pendingReqs.length}</span>` : ""}
+              </button>
               <button onclick="goTab('cloud')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cloud" ? "bg-amber-400 text-[#081736]" : "text-emerald-300 hover:bg-white/10"}">☁️ Nube / Sincronizar ${(state.cloudUnlocked || isAdmin) ? "" : "🔒"}</button>
               <button onclick="goTab('homesetup')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "homesetup" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">🎨 Pantalla Principal ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('live')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "live" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📡 En Vivo</button>
@@ -2431,6 +2712,29 @@ create policy "Acceso publico POS"
             </div>
           </nav>
         </header>
+
+        ${isAdmin && pendingReqs.length > 0 ? `
+          <section class="max-w-7xl mx-auto px-4 pt-4">
+            <div class="bg-amber-50 border-2 border-rose-500 rounded-2xl p-3.5 text-xs space-y-2 shadow-sm">
+              <div class="flex flex-wrap justify-between items-center gap-2">
+                <div class="font-black text-rose-700 text-sm">🔔 Solicitudes de Surtido Pendientes (${pendingReqs.length})</div>
+                <button type="button" onclick="goTab('requests')" class="bg-[#081736] text-amber-400 font-bold px-3 py-1 rounded-lg text-[11px]">Ver todas</button>
+              </div>
+              <div class="space-y-1.5">
+                ${pendingReqs.slice(0, 3).map(r => `
+                  <div class="bg-white border border-rose-200 rounded-xl px-3 py-2 flex flex-wrap justify-between items-center gap-2">
+                    <div>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-black mr-1.5 ${r.urgency === "Urgente" ? "bg-rose-600 text-white" : "bg-amber-200 text-amber-950"}">${esc(r.urgency)}</span>
+                      <b class="text-slate-900">${esc(r.message)}</b>
+                      <span class="text-slate-400 ml-1.5">(${esc(r.fromRole)} • ${esc(r.time)})</span>
+                    </div>
+                    <button type="button" data-rid="${esc(r.id)}" onclick="resolveSupplyRequest(this.dataset.rid)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-2.5 py-1 rounded-lg text-[11px]">✓ Surtido</button>
+                  </div>
+                `).join("")}
+              </div>
+            </div>
+          </section>
+        ` : ""}
 
         ${isAdmin ? `
           <section class="max-w-7xl mx-auto px-4 pt-4 grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
@@ -2443,6 +2747,23 @@ create policy "Acceso publico POS"
 
         <main class="max-w-7xl mx-auto px-4 py-4 space-y-5">
           ${state.activeTab === "pos" ? `
+            ${isPreviousDayStillOpen() ? `
+              <div class="bg-rose-600 text-white p-4 rounded-2xl border-2 border-amber-300 flex flex-wrap items-center justify-between gap-3 text-xs shadow">
+                <div>
+                  <div class="font-black text-sm">⚠️ El día anterior (${esc(state.dayStartedLabel)}) sigue sin cerrarse</div>
+                  <div class="text-rose-100">Para iniciar el nuevo día tienes que cerrar el día de ayer y volver a dar inicio para el nuevo día.</div>
+                </div>
+                <button type="button" onclick="closeCurrentDaySession()" class="bg-amber-400 text-[#081736] font-black px-4 py-2 rounded-xl">⏹️ Cerrar Día Anterior Ahora</button>
+              </div>
+            ` : !state.dayActive ? `
+              <div class="bg-amber-100 border-2 border-amber-400 text-[#081736] p-4 rounded-2xl flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div>
+                  <div class="font-black text-sm">🔒 Jornada cerrada — Inicia el día para tomar órdenes</div>
+                  <div class="text-slate-700">Pulsa <b>▶️ Iniciar Cuenta</b> para abrir la cuenta de hoy antes de registrar pedidos.</div>
+                </div>
+                <button type="button" onclick="startNewDayAccount()" class="bg-emerald-600 hover:bg-emerald-500 text-white font-black px-4 py-2 rounded-xl">▶️ Iniciar Cuenta del Día</button>
+              </div>
+            ` : ""}
             <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
               <div class="lg:col-span-7 bg-white p-4 rounded-2xl border space-y-3">
                 <div class="flex flex-wrap gap-2 justify-between items-center">
@@ -2468,12 +2789,20 @@ create policy "Acceso publico POS"
                     const jarritoBreakdown = p.kind === "jarrito" && Array.isArray(p.flavors)
                       ? `<div class="mt-1.5 flex flex-wrap gap-1">
                           ${p.flavors.map(fl => {
-                            const res = getCartReservedQty(p.id, fl.name);
+                            const res = getCartReservedQty(p.id, fl.name, null);
                             const rem = Math.max(0, fl.stock - res);
                             return `<span class="text-[10px] px-1.5 py-0.5 rounded font-bold ${rem > 0 ? "bg-amber-100 text-amber-950" : "bg-slate-200 text-slate-400 line-through"}">${esc(fl.name)}: ${rem}</span>`;
                           }).join("")}
                         </div>`
-                      : "";
+                      : p.kind === "burger" && Array.isArray(p.meats) && !p.infinite
+                        ? `<div class="mt-1.5 flex flex-wrap gap-1">
+                            ${p.meats.map(mt => {
+                              const res = getCartReservedQty(p.id, null, mt.name);
+                              const rem = Math.max(0, mt.stock - res);
+                              return `<span class="text-[10px] px-1.5 py-0.5 rounded font-bold ${rem > 0 ? "bg-amber-100 text-amber-950" : "bg-slate-200 text-slate-400 line-through"}">${esc(mt.name)}: ${rem}</span>`;
+                            }).join("")}
+                          </div>`
+                        : "";
 
                     return `
                       <div data-pid="${p.id}" onclick="${agotado ? "" : "onProductClick(this.dataset.pid)"}" class="p-3 rounded-xl border ${agotado ? "opacity-50 bg-slate-100" : "hover:border-amber-400 cursor-pointer bg-white"}">
@@ -2595,6 +2924,84 @@ create policy "Acceso publico POS"
                 ${renderMenuFullEditorTable()}
               </div>
             ` : ""}
+          ` : ""}
+
+          ${state.activeTab === "requests" ? `
+            <div class="max-w-4xl mx-auto space-y-5">
+              <div class="bg-white p-5 rounded-2xl border-2 border-[#081736] space-y-4 text-xs">
+                <div>
+                  <div class="text-[10px] font-bold uppercase text-amber-600">Comunicación Cocina / Caja → Administrador</div>
+                  <h2 class="font-black text-[#081736] text-base sm:text-lg">Enviar Solicitud o Aviso de Surtido</h2>
+                  <p class="text-slate-500 text-[11px]">Avisa al administrador cuando falte algún insumo o ingrediente (se sincroniza en vivo en su celular o computadora).</p>
+                </div>
+
+                <div class="space-y-1.5">
+                  <div class="font-bold text-slate-600 text-[11px]">Plantillas rápidas (toca para rellenar y ajusta el número):</div>
+                  <div class="flex flex-wrap gap-1.5">
+                    <button type="button" onclick="setQuickSupplyTemplate('Solo quedan 4 rebanadas de queso, hay que surtir')" class="bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">🧀 Queso (quedan 4)</button>
+                    <button type="button" onclick="setQuickSupplyTemplate('Ya quedan solo 5 panes de hamburguesa, hay que surtir')" class="bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">🍔 Panes (quedan 5)</button>
+                    <button type="button" onclick="setQuickSupplyTemplate('Se está acabando la carne (Arrachera / Sirloin), hay que surtir')" class="bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">🥩 Carne hamburguesa</button>
+                    <button type="button" onclick="setQuickSupplyTemplate('Quedan pocas papas / banderillas, hay que surtir')" class="bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">🍟 Papas / Banderillas</button>
+                    <button type="button" onclick="setQuickSupplyTemplate('Faltan aderezos o salsas, hay que surtir')" class="bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">🥫 Aderezos / Salsas</button>
+                    <button type="button" onclick="setQuickSupplyTemplate('Faltan refrescos / Jarritos fríos, hay que surtir')" class="bg-amber-100 hover:bg-amber-200 text-amber-950 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">🥤 Refrescos / Jarritos</button>
+                  </div>
+                </div>
+
+                <form onsubmit="createSupplyRequest(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-2">
+                  <input id="reqMsgInput" name="reqMsg" type="text" required placeholder="Ej. Solo quedan 4 rebanadas de queso, hay que surtir..." class="sm:col-span-8 border rounded-xl px-3 py-2.5 font-bold text-xs" />
+                  <select name="reqUrgency" class="sm:col-span-2 border rounded-xl px-2.5 py-2.5 font-bold text-xs bg-slate-50">
+                    <option value="Normal">Normal</option>
+                    <option value="Urgente">🚨 Urgente</option>
+                  </select>
+                  <button type="submit" class="sm:col-span-2 bg-[#081736] hover:bg-[#0d2352] text-amber-400 font-black py-2.5 px-3 rounded-xl text-xs">Enviar Aviso</button>
+                </form>
+              </div>
+
+              <div class="bg-white p-5 rounded-2xl border space-y-3 text-xs">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2.5">
+                  <div>
+                    <h3 class="font-black text-[#081736] text-base">Historial de Avisos y Solicitudes (${(state.supplyRequests || []).length})</h3>
+                    <p class="text-[11px] text-slate-500">El administrador puede marcar cada aviso como <b>✓ Surtido</b> cuando ya se haya abastecido.</p>
+                  </div>
+                  ${isAdmin && (state.supplyRequests || []).some(r => r.status === "Surtido") ? `
+                    <button type="button" onclick="clearResolvedSupplyRequests()" class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold px-3 py-1.5 rounded-lg text-[11px]">Limpiar Surtidos</button>
+                  ` : ""}
+                </div>
+
+                ${(!state.supplyRequests || state.supplyRequests.length === 0)
+                  ? `<p class="text-slate-400 py-6 text-center">No hay solicitudes de surtido registradas todavía.</p>`
+                  : `<div class="space-y-2">
+                      ${state.supplyRequests.map(r => {
+                        const resolved = r.status === "Surtido";
+                        return `
+                          <div class="p-3.5 rounded-xl border flex flex-wrap justify-between items-center gap-2 ${resolved ? "bg-slate-50 border-slate-200" : r.urgency === "Urgente" ? "bg-rose-50/70 border-rose-300" : "bg-amber-50/50 border-amber-300"}">
+                            <div class="space-y-0.5">
+                              <div class="flex flex-wrap items-center gap-1.5">
+                                <span class="px-2 py-0.5 rounded-full text-[10px] font-extrabold ${resolved ? "bg-emerald-100 text-emerald-800" : r.urgency === "Urgente" ? "bg-rose-600 text-white" : "bg-amber-200 text-amber-950"}">
+                                  ${resolved ? "✓ Surtido" : esc(r.urgency)}
+                                </span>
+                                <span class="font-black text-slate-900 text-sm">${esc(r.message)}</span>
+                              </div>
+                              <div class="text-[11px] text-slate-500">
+                                Enviado por <b>${esc(r.fromRole)}</b> • ${esc(r.date)} ${esc(r.time)}
+                                ${r.resolvedAt ? ` • Atendido a las <b>${esc(r.resolvedAt)}</b>` : ""}
+                              </div>
+                            </div>
+                            <div class="flex items-center gap-1.5">
+                              ${isAdmin && !resolved ? `
+                                <button type="button" data-rid="${esc(r.id)}" onclick="resolveSupplyRequest(this.dataset.rid)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-[11px]">✓ Marcar Surtido</button>
+                              ` : ""}
+                              ${isAdmin ? `
+                                <button type="button" data-rid="${esc(r.id)}" onclick="deleteSupplyRequest(this.dataset.rid)" class="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">✕</button>
+                              ` : ""}
+                            </div>
+                          </div>
+                        `;
+                      }).join("")}
+                    </div>`
+                }
+              </div>
+            </div>
           ` : ""}
 
           ${state.activeTab === "cloud" ? `
