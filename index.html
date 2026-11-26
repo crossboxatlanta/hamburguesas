@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v37_cloud";
+    const STORAGE_KEY = "the_twins_pos_v38_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -493,11 +493,11 @@ create policy "Acceso publico POS"
 
     function checkCanTakeOrders() {
       if (isPreviousDayStillOpen()) {
-        alert(`⚠️ El día anterior (${state.dayStartedLabel}) sigue abierto.\n\nPara iniciar hoy, primero tienes que cerrar el día de ayer con el botón "⏹️ Cerrar Día" y después volver a dar "▶️ Iniciar Cuenta" para el nuevo día.`);
+        alert(`⚠️ El día anterior (${state.dayStartedLabel}) sigue abierto.\n\nPara iniciar hoy, primero tienes que cerrar el día de ayer con el botón '⏹️ Cerrar Día' y después volver a dar '▶️ Iniciar Cuenta' para el nuevo día.`);
         return false;
       }
       if (!state.dayActive) {
-        alert("⚠️ Aún no has iniciado la cuenta del día.\n\nPulsa primero el botón verde "▶️ Iniciar Cuenta" en la barra superior para empezar a tomar órdenes.");
+        alert("⚠️ Aún no has iniciado la cuenta del día.\n\nPulsa primero el botón verde '▶️ Iniciar Cuenta' en la barra superior para empezar a tomar órdenes.");
         return false;
       }
       return true;
@@ -505,7 +505,7 @@ create policy "Acceso publico POS"
 
     function startNewDayAccount() {
       if (isPreviousDayStillOpen()) {
-        alert(`⚠️ No puedes iniciar el nuevo día porque el día de ayer (${state.dayStartedLabel}) sigue abierto.\n\nPrimero cierra el día anterior con "⏹️ Cerrar Día" y vuelve a dar "▶️ Iniciar Cuenta" para el nuevo día.`);
+        alert(`⚠️ No puedes iniciar el nuevo día porque el día de ayer (${state.dayStartedLabel}) sigue abierto.\n\nPrimero cierra el día anterior con '⏹️ Cerrar Día' y vuelve a dar '▶️ Iniciar Cuenta' para el nuevo día.`);
         return;
       }
       if (state.dayActive && state.dayStartedLabel === getTodayDateLabel()) {
