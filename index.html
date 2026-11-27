@@ -41,7 +41,7 @@
     const PRESET_SUPABASE_ANON_KEY = "";
     const SYNC_ROOM_ID = "the_twins_main";
 
-    const STORAGE_KEY = "the_twins_pos_v38_cloud";
+    const STORAGE_KEY = "the_twins_pos_v40_cloud";
     const CLOUD_CFG_KEY = "the_twins_supabase_cfg_v1";
 
     const BURGER_TYPES = ["Arrachera", "Sirloin"];
@@ -581,8 +581,8 @@ create policy "Acceso publico POS"
       const isSundayCut = dayName === "Domingo";
 
       const confirmMsg = isSundayCut
-        ? `¿Hacer CORTE DE DOMINGO y cerrar el día (${dayName} ${dateLabel}) con ${validOrders.length} orden(es) por ${fmt(totalSales)} (ganancia del día: ${fmt(dayProfit)})? Se guardará el corte y las comandas pasarán a Días Anteriores.`
-        : `¿Hacer corte y cerrar el día (${dayName} ${dateLabel}) con ${validOrders.length} orden(es) por ${fmt(totalSales)} (ganancia del día: ${fmt(dayProfit)})? Se registrará el corte del día y las comandas pasarán a Días Anteriores.`;
+        ? `¿Hacer CORTE DE DOMINGO y cerrar el día (${dayName} ${dateLabel}) con ${validOrders.length} orden(es) por ${fmt(totalSales)}? Se guardará el corte y las comandas pasarán a Días Anteriores.`
+        : `¿Hacer corte y cerrar el día (${dayName} ${dateLabel}) con ${validOrders.length} orden(es) por ${fmt(totalSales)}? Se registrará el corte del día y las comandas pasarán a Días Anteriores.`;
       if (!confirm(confirmMsg)) return;
 
       const sessionDayName = state.orders[0] && state.orders[0].dayName ? state.orders[0].dayName : dayName;
@@ -651,7 +651,7 @@ create policy "Acceso publico POS"
       state.inspectedOrderId = null;
       state.dayActive = false;
 
-      addLiveLog(`Corte realizado al cerrar día (${sessionDayName} ${dateLabel}) • ${validOrders.length} ord. • Venta ${fmt(totalSales)} • Ganancia ${fmt(dayProfit)}`);
+      addLiveLog(`Corte realizado al cerrar día (${sessionDayName} ${dateLabel}) • ${validOrders.length} ord. • Venta ${fmt(totalSales)}`);
       saveLocalOnly();
       render();
       showToast(isSundayCut ? "✓ Corte de domingo realizado y día cerrado" : "✓ Corte del día realizado y guardado");
@@ -1321,7 +1321,7 @@ create policy "Acceso publico POS"
 
     function setSellerMode() {
       state.role = "seller";
-      if (state.activeTab === "inventory" || state.activeTab === "cash" || state.activeTab === "homesetup" || state.activeTab === "analytics") {
+      if (state.activeTab === "cash" || state.activeTab === "homesetup" || state.activeTab === "analytics") {
         state.activeTab = "pos";
       }
       saveState(false);
@@ -1380,7 +1380,7 @@ create policy "Acceso publico POS"
         openAuth("cloud");
         return;
       }
-      const adminOnly = ["inventory", "cash", "homesetup", "analytics"];
+      const adminOnly = ["cash", "homesetup", "analytics"];
       if (adminOnly.includes(tabKey) && state.role !== "admin") {
         openAuth(tabKey);
         return;
@@ -2365,6 +2365,7 @@ create policy "Acceso publico POS"
     }
 
     function renderMenuFullEditorTable() {
+      const isAdminRole = state.role === "admin";
       const burgerProd = state.products.find(x => x.kind === "burger");
       if (burgerProd) ensureBurgerMeatsStructure([burgerProd]);
       const burgerHtml = (burgerProd && Array.isArray(burgerProd.meats))
@@ -2406,7 +2407,7 @@ create policy "Acceso publico POS"
                   <div class="flex items-center gap-1">
                     <input type="number" value="${fl.stock}" onchange="editJarritoFlavorStock(this.closest('div[data-fl]').dataset.fl, this.value)" class="w-12 border rounded px-1.5 py-0.5 font-bold bg-white" />
                     <button type="button" onclick="addJarritoFlavorQuick(this.closest('div[data-fl]').dataset.fl, 6)" class="bg-emerald-100 text-emerald-800 px-1.5 py-0.5 rounded font-bold">+6</button>
-                    <button type="button" onclick="removeJarritoFlavor(this.closest('div[data-fl]').dataset.fl)" title="Quitar sabor" class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold">✕</button>
+                    ${isAdminRole ? `<button type="button" onclick="removeJarritoFlavor(this.closest('div[data-fl]').dataset.fl)" title="Quitar sabor" class="bg-rose-100 text-rose-700 px-1.5 py-0.5 rounded font-bold">✕</button>` : ""}
                   </div>
                 </div>
               `).join("")}
@@ -2415,17 +2416,19 @@ create policy "Acceso publico POS"
         : "";
 
       return `
-        <form onsubmit="createProd(event)" class="grid grid-cols-1 sm:grid-cols-6 gap-2 text-xs bg-slate-50 p-3 rounded-xl border">
-          <input name="pName" required placeholder="Nuevo producto / aderezo" class="sm:col-span-2 border rounded-lg px-2.5 py-2 bg-white font-semibold" />
-          <input name="pCat" placeholder="Categoría (ej. Extras)" value="Extras" class="border rounded-lg px-2.5 py-2 bg-white" />
-          <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-2.5 py-2 bg-white" />
-          <input name="pPrice" type="number" step="0.01" required placeholder="Precio $" class="border rounded-lg px-2.5 py-2 bg-white font-bold" />
-          <div class="flex items-center gap-1.5">
-            <input name="pStock" type="number" placeholder="Stock" class="w-14 border rounded-lg px-2 py-2 bg-white" />
-            <label class="font-bold"><input name="pInf" type="checkbox" checked /> ∞</label>
-            <button type="submit" class="bg-[#081736] text-amber-400 font-black px-2.5 py-2 rounded-lg">+</button>
-          </div>
-        </form>
+        ${isAdminRole ? `
+          <form onsubmit="createProd(event)" class="grid grid-cols-1 sm:grid-cols-6 gap-2 text-xs bg-slate-50 p-3 rounded-xl border">
+            <input name="pName" required placeholder="Nuevo producto / aderezo" class="sm:col-span-2 border rounded-lg px-2.5 py-2 bg-white font-semibold" />
+            <input name="pCat" placeholder="Categoría (ej. Extras)" value="Extras" class="border rounded-lg px-2.5 py-2 bg-white" />
+            <input name="pCost" type="number" step="0.01" required placeholder="Costo $" class="border rounded-lg px-2.5 py-2 bg-white" />
+            <input name="pPrice" type="number" step="0.01" required placeholder="Precio $" class="border rounded-lg px-2.5 py-2 bg-white font-bold" />
+            <div class="flex items-center gap-1.5">
+              <input name="pStock" type="number" placeholder="Stock" class="w-14 border rounded-lg px-2 py-2 bg-white" />
+              <label class="font-bold"><input name="pInf" type="checkbox" checked /> ∞</label>
+              <button type="submit" class="bg-[#081736] text-amber-400 font-black px-2.5 py-2 rounded-lg">+</button>
+            </div>
+          </form>
+        ` : `<div class="bg-slate-50 border rounded-xl p-2.5 text-[11px] text-slate-600 font-semibold">Modo Vendedor: puedes actualizar las existencias y sabores disponibles.</div>`}
 
         <div class="overflow-x-auto">
           <table class="w-full text-left text-xs">
@@ -2433,20 +2436,37 @@ create policy "Acceso publico POS"
               <tr class="border-b text-slate-500">
                 <th class="py-2">Nombre</th>
                 <th class="py-2">Categoría</th>
-                <th class="py-2">Costo ($)</th>
+                ${isAdminRole ? `<th class="py-2">Costo ($)</th>` : ""}
                 <th class="py-2">Precio ($)</th>
                 <th class="py-2">Stock</th>
                 <th class="py-2">∞</th>
-                <th class="py-2 text-right">Borrar</th>
+                ${isAdminRole ? `<th class="py-2 text-right">Borrar</th>` : ""}
               </tr>
             </thead>
             <tbody class="divide-y">
               ${state.products.map(p => `
                 <tr data-pid="${p.id}">
-                  <td class="py-2 pr-2"><input type="text" value="${esc(p.name)}" onchange="editProd(this.closest('tr').dataset.pid,'name',this.value)" class="border rounded px-2 py-1 font-bold w-48" /></td>
-                  <td class="py-2 pr-2"><input type="text" value="${esc(p.category)}" onchange="editProd(this.closest('tr').dataset.pid,'category',this.value)" class="border rounded px-2 py-1 w-24" /></td>
-                  <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.costPrice}" onchange="editProd(this.closest('tr').dataset.pid,'costPrice',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
-                  <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.price}" onchange="editProd(this.closest('tr').dataset.pid,'price',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
+                  <td class="py-2 pr-2">
+                    ${isAdminRole
+                      ? `<input type="text" value="${esc(p.name)}" onchange="editProd(this.closest('tr').dataset.pid,'name',this.value)" class="border rounded px-2 py-1 font-bold w-48" />`
+                      : `<span class="font-bold text-slate-900">${esc(p.name)}</span>`
+                    }
+                  </td>
+                  <td class="py-2 pr-2">
+                    ${isAdminRole
+                      ? `<input type="text" value="${esc(p.category)}" onchange="editProd(this.closest('tr').dataset.pid,'category',this.value)" class="border rounded px-2 py-1 w-24" />`
+                      : `<span class="text-slate-600">${esc(p.category)}</span>`
+                    }
+                  </td>
+                  ${isAdminRole ? `
+                    <td class="py-2 pr-2"><input type="number" step="0.5" value="${p.costPrice}" onchange="editProd(this.closest('tr').dataset.pid,'costPrice',this.value)" class="border rounded px-2 py-1 w-20 font-bold" /></td>
+                  ` : ""}
+                  <td class="py-2 pr-2">
+                    ${isAdminRole
+                      ? `<input type="number" step="0.5" value="${p.price}" onchange="editProd(this.closest('tr').dataset.pid,'price',this.value)" class="border rounded px-2 py-1 w-20 font-bold" />`
+                      : `<span class="font-extrabold text-slate-800">${fmt(p.price)}</span>`
+                    }
+                  </td>
                   <td class="py-2 pr-2">
                     ${p.kind === "jarrito" ? `<span class="text-slate-500 font-semibold">Por sabor (${getTotalStock(p)} total)</span>` : p.kind === "burger" ? `<span class="text-slate-600 font-semibold">Por carne (${getTotalStock(p)} total)</span>` : `
                       <div class="flex items-center gap-1">
@@ -2459,9 +2479,11 @@ create policy "Acceso publico POS"
                     `}
                   </td>
                   <td class="py-2"><input type="checkbox" ${p.infinite ? "checked" : ""} onchange="editProd(this.closest('tr').dataset.pid,'infinite',this.checked)" /></td>
-                  <td class="py-2 text-right">
-                    <button type="button" onclick="deleteProdFromHome(this.closest('tr').dataset.pid)" class="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2 py-1 rounded text-[11px]">Borrar</button>
-                  </td>
+                  ${isAdminRole ? `
+                    <td class="py-2 text-right">
+                      <button type="button" onclick="deleteProdFromHome(this.closest('tr').dataset.pid)" class="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2 py-1 rounded text-[11px]">Borrar</button>
+                    </td>
+                  ` : ""}
                 </tr>
               `).join("")}
             </tbody>
@@ -2706,7 +2728,7 @@ create policy "Acceso publico POS"
               <button onclick="goTab('homesetup')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "homesetup" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">🎨 Pantalla Principal ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('live')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "live" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📡 En Vivo</button>
               <button onclick="goTab('analytics')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "analytics" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📈 Rotación y Ventas ${!isAdmin ? "🔒" : ""}</button>
-              <button onclick="goTab('inventory')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "inventory" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">📦 Inventario ${!isAdmin ? "🔒" : ""}</button>
+              <button onclick="goTab('inventory')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "inventory" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">📦 Inventario</button>
               <button onclick="goTab('cash')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "cash" ? "bg-amber-400 text-[#081736]" : "text-slate-300 hover:bg-white/10"}">💰 Corte y Sueldos Lun–Dom ${!isAdmin ? "🔒" : ""}</button>
               <button onclick="goTab('printer')" class="px-3 py-1.5 rounded-lg ${state.activeTab === "printer" ? "bg-amber-400 text-[#081736]" : "text-white hover:bg-white/10"}">🖨️ Bluetooth 58mm</button>
             </div>
@@ -2961,7 +2983,7 @@ create policy "Acceso publico POS"
                 <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2.5">
                   <div>
                     <h3 class="font-black text-[#081736] text-base">Historial de Avisos y Solicitudes (${(state.supplyRequests || []).length})</h3>
-                    <p class="text-[11px] text-slate-500">El administrador puede marcar cada aviso como <b>✓ Surtido</b> cuando ya se haya abastecido.</p>
+                    <p class="text-[11px] text-slate-500">Marca cada aviso como <b>✓ Surtido / Completo</b> cuando ya se haya abastecido.</p>
                   </div>
                   ${isAdmin && (state.supplyRequests || []).some(r => r.status === "Surtido") ? `
                     <button type="button" onclick="clearResolvedSupplyRequests()" class="bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold px-3 py-1.5 rounded-lg text-[11px]">Limpiar Surtidos</button>
@@ -2988,8 +3010,8 @@ create policy "Acceso publico POS"
                               </div>
                             </div>
                             <div class="flex items-center gap-1.5">
-                              ${isAdmin && !resolved ? `
-                                <button type="button" data-rid="${esc(r.id)}" onclick="resolveSupplyRequest(this.dataset.rid)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-[11px]">✓ Marcar Surtido</button>
+                              ${!resolved ? `
+                                <button type="button" data-rid="${esc(r.id)}" onclick="resolveSupplyRequest(this.dataset.rid)" class="bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-3 py-1.5 rounded-lg text-[11px]">✓ Surtido / Completo</button>
                               ` : ""}
                               ${isAdmin ? `
                                 <button type="button" data-rid="${esc(r.id)}" onclick="deleteSupplyRequest(this.dataset.rid)" class="bg-rose-100 hover:bg-rose-200 text-rose-700 font-bold px-2.5 py-1.5 rounded-lg text-[11px]">✕</button>
@@ -3185,7 +3207,7 @@ create policy "Acceso publico POS"
           ` : ""}
 
 
-          ${state.activeTab === "inventory" && isAdmin ? `
+          ${state.activeTab === "inventory" ? `
             <div class="space-y-4">
               <div class="bg-white p-4 rounded-2xl border space-y-3">
                 <h2 class="font-black text-[#081736] text-sm">Menú, Precios, Costos y Stock</h2>
